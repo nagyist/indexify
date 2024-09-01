@@ -2,8 +2,8 @@ use std::{collections::HashMap, time::SystemTime};
 
 use indexify_internal_api::{self as internal_api, GarbageCollectionTask};
 use internal_api::{
-    DataObject, ExecutorMetadata, ExtractionGraphLink, GraphInvocationCtx, StateChange,
-    StateChangeId,
+    ComputeGraph, DataObject, ExecutorMetadata, ExtractionGraphLink, GraphInvocationCtx,
+    StateChange, StateChangeId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +39,11 @@ pub struct InvokeComputeGraphRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct CreateComputeGraphRequest {
+    pub compute_graph: ComputeGraph,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum RequestPayload {
     //  NOTE: This isn't strictly a state machine update. It's used to change cluster membership.
     JoinCluster {
@@ -67,9 +72,7 @@ pub enum RequestPayload {
         gc_task: GarbageCollectionTask,
         mark_finished: bool,
     },
-    CreateExtractionGraph {
-        extraction_graph: internal_api::ExtractionGraph,
-    },
+    CreateComputeGraph(CreateComputeGraphRequest),
     DeleteExtractionGraph {
         graph_id: String,
         gc_task: GarbageCollectionTask,

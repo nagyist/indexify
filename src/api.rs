@@ -863,3 +863,4 @@ pub struct ExtractionGraphRequest {
 pub struct ExtractionGraphResponse {
     pub indexes: Vec<String>,
 }
+

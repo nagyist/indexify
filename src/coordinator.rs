@@ -446,45 +446,8 @@ impl Coordinator {
     pub async fn create_extraction_graph(
         &self,
         extraction_graph: ExtractionGraph,
-    ) -> Result<Vec<internal_api::Index>> {
-        let mut structured_data_schema =
-            StructuredDataSchema::new(&extraction_graph.name, &extraction_graph.namespace);
-        let mut indexes_to_create = Vec::new();
-        for extraction_policy in &extraction_graph.extraction_policies {
-            let extractor = self.get_extractor(&extraction_policy.extractor)?;
-            for (output_name, output_schema) in extractor.outputs {
-                match output_schema {
-                    OutputSchema::Embedding(embeddings) => {
-                        let mut index_to_create = internal_api::Index {
-                            id: "".to_string(),
-                            namespace: extraction_policy.namespace.clone(),
-                            name: "".to_string(),
-                            table_name: "".to_string(),
-                            schema: serde_json::to_value(embeddings).unwrap().to_string(),
-                            extraction_policy_name: extraction_policy.name.clone(),
-                            extractor_name: extractor.name.clone(),
-                            graph_name: extraction_graph.name.clone(),
-                            visibility: false,
-                        };
-                        index_to_create.name = index_to_create.build_name(&output_name);
-                        index_to_create.table_name = index_to_create.build_table_name(&output_name);
-                        index_to_create.id = index_to_create.id();
-                        indexes_to_create.push(index_to_create);
-                    }
-                    OutputSchema::Attributes(columns) => {
-                        structured_data_schema.merge(columns);
-                    }
-                }
-            }
-        }
-        self.shared_state
-            .create_extraction_graph(
-                extraction_graph,
-                structured_data_schema,
-                indexes_to_create.clone(),
-            )
-            .await?;
-        Ok(indexes_to_create)
+    ) -> Result<()> {
+        Ok(())
     }
 
     pub async fn get_graph_analytics(

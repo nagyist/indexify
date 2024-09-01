@@ -1583,12 +1583,18 @@ pub enum GraphEdge {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComputeGraph {
     pub namespace: String,
-    pub graph_name: String,
+    pub name: String,
     pub code_path: String,
     pub create_at: u64,
     pub tombstoned: bool,
     pub start_fn: ComputeFn,
     pub edges: HashMap<String, Vec<GraphEdge>>,
+}
+
+impl ComputeGraph {
+    pub fn key(&self) -> String {
+        format!("{}_{}", self.namespace, self.name)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]

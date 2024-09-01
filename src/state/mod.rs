@@ -28,6 +28,7 @@ use internal_api::{
     ContentSource,
     ExtractionGraph,
     ExtractionGraphLink,
+    ComputeGraph,
     ExtractionPolicy,
     StateChange,
     StateChangeId,
@@ -44,7 +45,7 @@ use openraft::{
 use rocksdb::IteratorMode;
 use serde::Serialize;
 use store::{
-    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
+    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest, CreateComputeGraphRequest},
     serializer::{JsonEncode, JsonEncoder},
     ExecutorId,
     ExecutorIdRef,
@@ -630,25 +631,26 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_extraction_graph(
+    pub async fn create_compute_graph(
         &self,
-        extraction_graph: ExtractionGraph,
-        structured_data_schema: StructuredDataSchema,
-        indexes: Vec<internal_api::Index>,
+        compute_graph: ComputeGraph,
     ) -> Result<()> {
-        let existing_graph = self.state_machine.get_from_cf::<ExtractionGraph, _>(
-            StateMachineColumns::ExtractionGraphs,
-            &extraction_graph.key(),
+        let existing_graph = self.state_machine.get_from_cf::<ComputeGraph, _>(
+            StateMachineColumns::ComputeGraphs,
+            &compute_graph.key(),
         )?;
         if existing_graph.is_some() {
             return Err(anyhow!(
-                "extraction graph {} already exists in namespace {}",
-                extraction_graph.name,
-                extraction_graph.namespace
+                "compute graph {} already exists in namespace {}",
+                compute_graph.name,
+                compute_graph.namespace
             ));
         }
+        let create_graph_request = CreateComputeGraphRequest {
+            compute_graph,
+        };
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateExtractionGraph { extraction_graph },
+            payload: RequestPayload::CreateComputeGraph(create_graph_request),
             new_state_changes: vec![],
             state_changes_processed: vec![],
         };
@@ -1242,8 +1244,6 @@ mod tests {
     use indexify_internal_api::{
         ContentMetadata,
         ContentMetadataId,
-        ExtractionGraph,
-        StructuredDataSchema,
         TaskOutcome,
     };
 
@@ -1261,7 +1261,6 @@ mod tests {
             mock_executor,
             mock_extractor,
             test_mock_content_metadata,
-            DEFAULT_TEST_NAMESPACE,
         },
         test_utils::RaftTestCluster,
     };
@@ -1493,172 +1492,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_create_and_read_content() -> Result<(), anyhow::Error> {
-        let content_size = 3;
-
-        let cluster = RaftTestCluster::new(1, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-
-        //  Create an executor and associated extractor
-        let executor_id = "executor_id";
-        let mut extractor = mock_extractor();
-        extractor.input_mime_types = vec!["*/*".into()];
-        node.register_executor(mock_executor(
-            executor_id.to_string(),
-            vec![extractor.clone()],
-        ))
-        .await?;
-
-        let mut eg = create_test_extraction_graph("graph1", vec!["policy1"]);
-
-        eg.extraction_policies[0].filter = LabelsFilter(vec![
-            Expression {
-                key: "label1".to_string(),
-                operator: Operator::Eq,
-                value: serde_json::json!("value1"),
-            },
-            Expression {
-                key: "label2".to_string(),
-                operator: Operator::Eq,
-                value: serde_json::json!("value2"),
-            },
-            Expression {
-                key: "label3".to_string(),
-                operator: Operator::Eq,
-                value: serde_json::json!("value3"),
-            },
-        ]);
-
-        node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
-            .await?;
-
-        //  Create some content
-        let mut content_metadata_vec: Vec<ContentMetadata> = Vec::new();
-        for i in 0..content_size {
-            let content_metadata = ContentMetadata {
-                id: ContentMetadataId::new(&format!("id{}", i)),
-                namespace: DEFAULT_TEST_NAMESPACE.into(),
-                extraction_graph_names: vec!["graph1".into()],
-                ..Default::default()
-            };
-            content_metadata_vec.push(content_metadata);
-        }
-        node.create_content_batch(content_metadata_vec.clone())
-            .await?;
-
-        //  Read the content back
-        let read_content = node
-            .list_content(
-                |_: &ContentMetadata| true,
-                content_metadata_vec.first().unwrap().namespace.as_bytes(),
-                ContentMetadata::id_from_graph_key,
-                None,
-                None,
-            )
-            .await
-            .unwrap()
-            .items;
-        assert_eq!(read_content.len(), content_size);
-
-        //  Read back all the pieces of content
-        let read_content = node
-            .get_content_metadata_batch(
-                content_metadata_vec
-                    .iter()
-                    .map(|content| content.id.id.clone())
-                    .collect(),
-            )
-            .await?;
-        assert_eq!(read_content.len(), content_size);
-
-        //  Read back a specific piece of content
-        let read_content = node
-            .state_machine
-            .get_latest_version_of_content(&content_metadata_vec[0].id.id)?
-            .unwrap();
-        content_metadata_vec[0].change_offset = read_content.change_offset;
-        assert_eq!(read_content, content_metadata_vec[0]);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_create_read_and_match_extraction_policies() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(1, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-
-        //  Create an executor and associated extractor
-        let executor_id = "executor_id";
-        let mut extractor = mock_extractor();
-        extractor.input_mime_types = vec!["*/*".into()];
-        node.register_executor(mock_executor(
-            executor_id.to_string(),
-            vec![extractor.clone()],
-        ))
-        .await?;
-
-        let mut eg = create_test_extraction_graph("graph1", vec!["policy1"]);
-
-        eg.extraction_policies[0].filter = LabelsFilter(vec![
-            Expression {
-                key: "label1".to_string(),
-                operator: Operator::Eq,
-                value: serde_json::json!("value1"),
-            },
-            Expression {
-                key: "label2".to_string(),
-                operator: Operator::Eq,
-                value: serde_json::json!("value2"),
-            },
-            Expression {
-                key: "label3".to_string(),
-                operator: Operator::Eq,
-                value: serde_json::json!("value3"),
-            },
-        ]);
-
-        node.create_extraction_graph(eg.clone(), StructuredDataSchema::default(), vec![])
-            .await?;
-
-        //  Read the policy back using the id
-        let read_policy = node
-            .get_extraction_policy(&eg.extraction_policies[0].id)
-            .await?;
-        assert_eq!(read_policy, eg.extraction_policies[0]);
-
-        //  Create some content
-        let content_labels = vec![
-            ("label1".to_string(), serde_json::json!("value1")),
-            ("label2".to_string(), serde_json::json!("value2")),
-            ("label3".to_string(), serde_json::json!("value3")),
-        ];
-        let mut content_metadata = test_mock_content_metadata("test_content_id1", "", &eg.name);
-        content_metadata.labels = content_labels.into_iter().collect();
-        content_metadata.extraction_graph_names = vec![eg.name];
-        node.create_content_batch(vec![content_metadata.clone()])
-            .await?;
-
-        //  Fetch the policy based on the content id and check that the retrieved policy
-        // is correct
-        let matched_policies = node
-            .match_extraction_policies_for_content(
-                &content_metadata,
-                &content_metadata.extraction_graph_names,
-            )
-            .await?;
-        assert_eq!(matched_policies.len(), 1);
-        assert_eq!(
-            matched_policies.first().unwrap(),
-            &eg.extraction_policies[0]
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
     #[tracing_test::traced_test]
     async fn test_create_and_read_namespaces() -> Result<(), anyhow::Error> {
         let cluster = RaftTestCluster::new(1, None).await?;
@@ -1669,37 +1502,6 @@ mod tests {
         let namespace = "namespace";
         node.create_namespace(namespace).await?;
 
-        let eg = ExtractionGraph {
-            namespace: namespace.into(),
-            name: "name".into(),
-            description: Some("description".into()),
-            extraction_policies: vec![
-                indexify_internal_api::ExtractionPolicy {
-                    id: "id1".into(),
-                    namespace: namespace.into(),
-                    ..Default::default()
-                },
-                indexify_internal_api::ExtractionPolicy {
-                    id: "id2".into(),
-                    namespace: namespace.into(),
-                    ..Default::default()
-                },
-                indexify_internal_api::ExtractionPolicy {
-                    id: "id3".into(),
-                    namespace: namespace.into(),
-                    ..Default::default()
-                },
-            ],
-        };
-        let structured_schema = StructuredDataSchema::new(&eg.name, &eg.namespace);
-        node.create_extraction_graph(eg, structured_schema, vec![])
-            .await?;
-
-        //  Read the namespace back and expect to get the extraction policies as well
-        // which will be asserted
-        let graphs = node.list_extraction_graphs(namespace).await?;
-        assert_eq!(graphs.first().unwrap().extraction_policies.len(), 3);
-
         // Read all namespaces back and assert that only the created namespace is
         // present along with the extraction policies
         let namespaces = node.list_namespaces().await?;
@@ -1709,74 +1511,4 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    // #[tracing_test::traced_test]
-    async fn test_filter_extraction_policies_for_content() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(1, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-
-        let _namespace = "namespace";
-
-        //  Create an executor and associated extractor
-        let executor_id = "executor_id";
-        let extractor = mock_extractor();
-        node.register_executor(mock_executor(
-            executor_id.to_string(),
-            vec![extractor.clone()],
-        ))
-        .await?;
-
-        //  Create the extraction graph
-        let mut eg = create_test_extraction_graph("extraction_graph", vec!["extraction_policy"]);
-        eg.extraction_policies[0].filter = LabelsFilter(vec![Expression {
-            key: "label1".to_string(),
-            operator: Operator::Eq,
-            value: serde_json::json!("value1"),
-        }]);
-        let _structured_data_schema = StructuredDataSchema::default();
-        node.create_extraction_graph(
-            eg.clone(),
-            StructuredDataSchema::new(&eg.name, &eg.namespace),
-            vec![], //  no indexes
-        )
-        .await?;
-
-        //  Create some content
-        let mut content_metadata1 = test_mock_content_metadata("content_id_1", "", &eg.name);
-        content_metadata1.labels =
-            HashMap::from([("label1".to_string(), serde_json::json!("value1"))]);
-
-        let mut content_metadata2 = test_mock_content_metadata("content_id_2", "", &eg.name);
-        content_metadata2.labels =
-            HashMap::from([("label1".to_string(), serde_json::json!("value-mismatch"))]);
-        node.create_content_batch(vec![content_metadata1, content_metadata2])
-            .await?;
-
-        let content_metadata1 = node
-            .state_machine
-            .get_latest_version_of_content("content_id_1")?
-            .unwrap();
-        let policies = node
-            .match_extraction_policies_for_content(
-                &content_metadata1,
-                &content_metadata1.extraction_graph_names,
-            )
-            .await?;
-        assert_eq!(policies.len(), 1);
-
-        let content_metadata2 = node
-            .state_machine
-            .get_latest_version_of_content("content_id_2")?
-            .unwrap();
-        let policies = node
-            .match_extraction_policies_for_content(
-                &content_metadata2,
-                &content_metadata2.extraction_graph_names,
-            )
-            .await?;
-        assert_eq!(policies.len(), 0);
-
-        Ok(())
-    }
 }

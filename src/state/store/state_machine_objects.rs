@@ -41,6 +41,7 @@ use super::{
         InvokeComputeGraphRequest,
         RequestPayload,
         StateChangeProcessed,
+        CreateComputeGraphRequest,
         StateMachineUpdateRequest,
     },
     serializer::JsonEncode,
@@ -679,22 +680,20 @@ impl IndexifyState {
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))
     }
 
-    fn set_extraction_graph(
+    fn create_compute_graph(
         &self,
         db: &OptimisticTransactionDB,
         txn: &Transaction<OptimisticTransactionDB>,
-        extraction_graph: &ExtractionGraph,
+        compute_graph: &CreateComputeGraphRequest,
     ) -> Result<(), StateMachineError> {
-        let serialized_eg = JsonEncoder::encode(extraction_graph)?;
+        let key = compute_graph.compute_graph.key();
+        let serialized_cg = JsonEncoder::encode(compute_graph)?;
         txn.put_cf(
-            &StateMachineColumns::ExtractionGraphs.cf(db),
-            extraction_graph.key(),
-            serialized_eg,
+            &StateMachineColumns::ComputeGraphs.cf(db),
+            key,
+            serialized_cg,
         )
         .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-        for ep in extraction_graph.extraction_policies.to_owned() {
-            self.set_extraction_policy(db, txn, &ep)?;
-        }
         Ok(())
     }
 
@@ -1503,8 +1502,8 @@ impl IndexifyState {
             } => {
                 self.set_coordinator_addr(db, &txn, *node_id, coordinator_addr)?;
             }
-            RequestPayload::CreateExtractionGraph { extraction_graph } => {
-                self.set_extraction_graph(db, &txn, extraction_graph)?;
+            RequestPayload::CreateComputeGraph(request) => {
+                self.create_compute_graph(db, &txn, request)?;
             }
             RequestPayload::CreateExtractionGraphLink {
                 extraction_graph_link,
@@ -1631,10 +1630,6 @@ impl IndexifyState {
                     }
                     let _ = self.new_content_channel.send(());
                 }
-                Ok(())
-            }
-            RequestPayload::CreateExtractionGraph { extraction_graph } => {
-                self.update_extraction_graph_reverse_idx(&extraction_graph);
                 Ok(())
             }
             RequestPayload::UpdateTask {
