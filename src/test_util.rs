@@ -174,11 +174,10 @@ pub mod db_utils {
         vec![mock_extractor()]
     }
 
-    pub fn mock_executor(id: String, extractors: Vec<ExtractorDescription>) -> ExecutorMetadata {
+    pub fn mock_executor(id: String) -> ExecutorMetadata {
         ExecutorMetadata {
             id,
             addr: "localhost:8950".to_string(),
-            extractors,
             labels: HashMap::new(),
         }
     }

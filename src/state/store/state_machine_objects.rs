@@ -38,10 +38,10 @@ use tracing::warn;
 
 use super::{
     requests::{
+        CreateComputeGraphRequest,
         InvokeComputeGraphRequest,
         RequestPayload,
         StateChangeProcessed,
-        CreateComputeGraphRequest,
         StateMachineUpdateRequest,
     },
     serializer::JsonEncode,
@@ -1433,44 +1433,10 @@ impl IndexifyState {
             RequestPayload::RegisterExecutor(executor) => {
                 //  Insert the executor
                 self.set_executor(db, &txn, executor)?;
-
-                //  Insert the associated extractors
-                self.set_extractors(db, &txn, &executor.extractors)?;
             }
             RequestPayload::RemoveExecutor { executor_id } => {
-                //  NOTE: Special case where forward and reverse indexes are updated together
-
-                //  Get a handle on the executor before deleting it from the DB
-                let executor_meta = self.delete_executor(db, &txn, executor_id)?;
-
-                // Remove all tasks assigned to this executor
+                self.delete_executor(db, &txn, executor_id)?;
                 self.delete_task_assignments_for_executor(db, &txn, executor_id)?;
-
-                txn.commit()
-                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-
-                //  Remove the extractors from the executor -> extractor mapping table
-                if let Some(executor_meta) = executor_meta {
-                    for extractor in &executor_meta.extractors {
-                        self.extractor_executors_table
-                            .remove(&extractor.name, &executor_meta.id);
-                    }
-                }
-
-                let executor_tasks = self
-                    .unfinished_tasks_by_executor
-                    .write()
-                    .unwrap()
-                    .remove(executor_id);
-
-                //  Put the tasks of the deleted executor into the unassigned tasks list
-                if let Some(executor_tasks) = executor_tasks {
-                    for task in executor_tasks.tasks {
-                        self.unassigned_tasks.insert(&task.id, task.creation_time);
-                    }
-                }
-
-                return Ok(request.new_state_changes.last().map(|sc| sc.id));
             }
             RequestPayload::CreateOrUpdateContent { entries } => {
                 self.set_content(db, &txn, entries.iter().map(|e| &e.content))?;
@@ -1563,12 +1529,6 @@ impl IndexifyState {
         }
         match request.payload {
             RequestPayload::RegisterExecutor(executor) => {
-                // Inserts the executor list of extractors to the executor -> extractor mapping
-                // table
-                for extractor in &executor.extractors {
-                    self.extractor_executors_table
-                        .insert(&extractor.name, &executor.id);
-                }
                 // initialize executor tasks
                 self.unfinished_tasks_by_executor
                     .write()
@@ -2469,16 +2429,6 @@ impl IndexifyState {
                     .entry(parent_id.clone())
                     .or_default()
                     .insert(content.id.clone());
-            }
-        }
-
-        for executor in self.iter_cf::<ExecutorMetadata>(db, StateMachineColumns::Executors) {
-            let (_, executor) = executor?;
-            for extractor in &executor.extractors {
-                extractor_executors_table
-                    .entry(extractor.name.clone())
-                    .or_default()
-                    .insert(executor.id.clone());
             }
         }
 

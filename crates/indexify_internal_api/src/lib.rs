@@ -1234,7 +1234,6 @@ pub struct VersionInfo {
 pub struct ExecutorMetadata {
     pub id: String,
     pub addr: String,
-    pub extractors: Vec<ExtractorDescription>,
     #[serde(default)]
     pub labels: HashMap<String, serde_json::Value>,
 }
@@ -1255,11 +1254,6 @@ impl From<indexify_coordinator::RegisterExecutorRequest> for ExecutorMetadata {
         Self {
             id: value.executor_id,
             addr: value.addr,
-            extractors: value
-                .extractors
-                .into_iter()
-                .map(|extractor| extractor.into())
-                .collect(),
             labels,
         }
     }

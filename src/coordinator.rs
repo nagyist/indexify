@@ -443,10 +443,7 @@ impl Coordinator {
         self.shared_state.extractor_with_name(extractor_name)
     }
 
-    pub async fn create_extraction_graph(
-        &self,
-        extraction_graph: ExtractionGraph,
-    ) -> Result<()> {
+    pub async fn create_extraction_graph(&self, extraction_graph: ExtractionGraph) -> Result<()> {
         Ok(())
     }
 

@@ -24,11 +24,11 @@ use indexify_proto::{
     indexify_raft::raft_api_server::RaftApiServer,
 };
 use internal_api::{
+    ComputeGraph,
     ContentMetadataId,
     ContentSource,
     ExtractionGraph,
     ExtractionGraphLink,
-    ComputeGraph,
     ExtractionPolicy,
     StateChange,
     StateChangeId,
@@ -45,7 +45,12 @@ use openraft::{
 use rocksdb::IteratorMode;
 use serde::Serialize;
 use store::{
-    requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest, CreateComputeGraphRequest},
+    requests::{
+        CreateComputeGraphRequest,
+        RequestPayload,
+        StateChangeProcessed,
+        StateMachineUpdateRequest,
+    },
     serializer::{JsonEncode, JsonEncoder},
     ExecutorId,
     ExecutorIdRef,
@@ -631,10 +636,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_compute_graph(
-        &self,
-        compute_graph: ComputeGraph,
-    ) -> Result<()> {
+    pub async fn create_compute_graph(&self, compute_graph: ComputeGraph) -> Result<()> {
         let existing_graph = self.state_machine.get_from_cf::<ComputeGraph, _>(
             StateMachineColumns::ComputeGraphs,
             &compute_graph.key(),
@@ -646,9 +648,7 @@ impl App {
                 compute_graph.namespace
             ));
         }
-        let create_graph_request = CreateComputeGraphRequest {
-            compute_graph,
-        };
+        let create_graph_request = CreateComputeGraphRequest { compute_graph };
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateComputeGraph(create_graph_request),
             new_state_changes: vec![],
@@ -1241,11 +1241,7 @@ mod tests {
     };
 
     use filter::{Expression, LabelsFilter, Operator};
-    use indexify_internal_api::{
-        ContentMetadata,
-        ContentMetadataId,
-        TaskOutcome,
-    };
+    use indexify_internal_api::{ContentMetadata, ContentMetadataId, TaskOutcome};
 
     use crate::{
         state::{
@@ -1459,11 +1455,8 @@ mod tests {
             name: "extractor".into(),
             ..Default::default()
         };
-        node.register_executor(mock_executor(
-            executor_id.to_string(),
-            vec![extractor.clone()],
-        ))
-        .await?;
+        node.register_executor(mock_executor(executor_id.to_string()))
+            .await?;
 
         //  Read the executors from multiple functions
         let executors = node.get_executors().await?;
@@ -1510,5 +1503,4 @@ mod tests {
 
         Ok(())
     }
-
 }
