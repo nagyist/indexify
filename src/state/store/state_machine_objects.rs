@@ -1987,25 +1987,6 @@ impl IndexifyState {
         .collect::<Result<Vec<(String, V)>, _>>()
     }
 
-    pub fn list_active_contents(
-        &self,
-        db: &OptimisticTransactionDB,
-        namespace: &str,
-    ) -> Result<Vec<String>, StateMachineError> {
-        let root_content_guard = self.root_task_counts.read().unwrap();
-        let root_content_ids: Vec<String> = root_content_guard.keys().cloned().collect();
-        drop(root_content_guard);
-        let content = self.get_content_from_ids(root_content_ids, db)?;
-        let content_ids = content
-            .into_iter()
-            .filter(|content| content.namespace == namespace)
-            .map(|content| content.id.id)
-            .collect_vec();
-        Ok(content_ids)
-    }
-
-    //  END READER METHODS FOR ROCKSDB FORWARD INDEXES
-
     //  START READER METHODS FOR REVERSE INDEXES
     pub fn get_unassigned_tasks(&self) -> HashMap<TaskId, SystemTime> {
         self.unassigned_tasks.inner()

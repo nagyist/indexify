@@ -828,14 +828,7 @@ impl StateMachineStore {
     {
         get_from_cf(&self.db.read().unwrap(), column, key)
     }
-
-    pub async fn list_active_contents(&self, namespace: &str) -> Result<Vec<String>> {
-        self.data
-            .indexify_state
-            .list_active_contents(&self.db.read().unwrap(), namespace)
-            .map_err(|e| anyhow::anyhow!("Failed to list active contents: {}", e))
-    }
-
+    
     pub async fn list_tasks<F>(
         &self,
         filter: F,
