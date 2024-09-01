@@ -94,9 +94,6 @@ impl Scheduler {
             }
         };
         let graph_names = match &state_change.change_type {
-            indexify_internal_api::ChangeType::AddGraphToContent { extraction_graph } => {
-                vec![extraction_graph.clone()]
-            }
             indexify_internal_api::ChangeType::NewContent => content.extraction_graph_names.clone(),
             _ => return Err(anyhow!("unexpected state change type")),
         };

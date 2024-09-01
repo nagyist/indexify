@@ -1309,10 +1309,7 @@ impl IndexifyState {
             .remove(&state_change.state_change_id);
     }
 
-    fn update_extraction_graph_reverse_idx(
-        &self,
-        extraction_graph: &ExtractionGraph,
-    ) {
+    fn update_extraction_graph_reverse_idx(&self, extraction_graph: &ExtractionGraph) {
         for ep in &extraction_graph.extraction_policies {
             let key = ExtractionGraphNode {
                 namespace: ep.namespace.clone(),
@@ -1555,9 +1552,7 @@ impl IndexifyState {
             } => {
                 self.set_coordinator_addr(db, &txn, *node_id, coordinator_addr)?;
             }
-            RequestPayload::CreateExtractionGraph {
-                extraction_graph,
-            } => {
+            RequestPayload::CreateExtractionGraph { extraction_graph } => {
                 self.set_extraction_graph(db, &txn, extraction_graph)?;
             }
             RequestPayload::CreateExtractionGraphLink {
@@ -1688,9 +1683,7 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::CreateExtractionGraph {
-                extraction_graph,
-            } => {
+            RequestPayload::CreateExtractionGraph { extraction_graph } => {
                 self.update_extraction_graph_reverse_idx(&extraction_graph);
                 Ok(())
             }
@@ -1704,13 +1697,17 @@ impl IndexifyState {
                     self.unfinished_tasks_by_extractor
                         .remove(&task.extractor, &task.id);
                     if let Some(ref executor_id) = executor_id {
-                        if let Some(tasks) = self.unfinished_tasks_by_executor
+                        if let Some(tasks) = self
+                            .unfinished_tasks_by_executor
                             .write()
                             .unwrap()
-                            .get_mut(executor_id) { tasks.remove(&UnfinishedTask {
-                                    id: task.id.clone(),
-                                    creation_time: task.creation_time,
-                                }) }
+                            .get_mut(executor_id)
+                        {
+                            tasks.remove(&UnfinishedTask {
+                                id: task.id.clone(),
+                                creation_time: task.creation_time,
+                            })
+                        }
                     }
                 }
                 Ok(())

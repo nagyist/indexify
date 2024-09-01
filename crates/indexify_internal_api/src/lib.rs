@@ -1271,38 +1271,20 @@ pub type NamespaceName = String;
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
     NewContent,
-    TombstoneContentTree,
     ExecutorAdded,
     ExecutorRemoved,
-    ContentUpdated,
     TaskCompleted { root_content_id: ContentMetadataId },
-    AddGraphToContent { extraction_graph: String },
-    ExtractionGraphDeleted { start_content_id: Vec<u8> },
-    TombstoneContent { is_root: bool },
 }
 
 impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ChangeType::NewContent => write!(f, "NewContent"),
-            ChangeType::TombstoneContentTree => write!(f, "TombstoneContentTree"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
-            ChangeType::ContentUpdated => write!(f, "ContentUpdated"),
             ChangeType::TaskCompleted {
                 root_content_id: content_id,
             } => write!(f, "TaskCompleted(content_id: {})", content_id),
-            ChangeType::AddGraphToContent { extraction_graph } => write!(
-                f,
-                "AddGraphToContent(extraction_graph: {})",
-                extraction_graph,
-            ),
-            ChangeType::ExtractionGraphDeleted { start_content_id } => write!(
-                f,
-                "ExtractionGraphDeleted(start_content_id: {:?})",
-                start_content_id
-            ),
-            ChangeType::TombstoneContent { is_root } => write!(f, "TombstoneContent: {}", is_root),
         }
     }
 }

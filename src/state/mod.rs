@@ -416,101 +416,6 @@ impl App {
         Ok(())
     }
 
-    pub async fn delete_content_by_graph(
-        &self,
-        start_content_id: Vec<u8>,
-        state_change: StateChange,
-    ) -> Result<()> {
-        let req = {
-            let db = self.state_machine.get_db();
-            let iter = db.iterator_cf(
-                StateMachineColumns::ContentTable.cf(&db),
-                IteratorMode::From(&start_content_id, rocksdb::Direction::Forward),
-            );
-            let mut content_metadata = Vec::new();
-            let mut new_state_changes = Vec::new();
-            let mut num_processed = 0;
-            for item in iter {
-                let (_, value) = item?;
-                let mut content: internal_api::ContentMetadata = JsonEncoder::decode(&value)?;
-                if num_processed >= 100 {
-                    // Continue iterating with new state change.
-                    let mut cont_state_change = state_change.clone();
-                    cont_state_change.change_type = ChangeType::ExtractionGraphDeleted {
-                        start_content_id: content.id_key().into(),
-                    };
-                    new_state_changes.push(cont_state_change);
-                    break;
-                }
-                num_processed += 1;
-                if !content.tombstoned &&
-                    content
-                        .extraction_graph_names
-                        .contains(&state_change.object_id)
-                {
-                    if content.extraction_graph_names.len() == 1 {
-                        content.tombstoned = true;
-                        new_state_changes.push(StateChange::new(
-                            content.id.to_string(),
-                            ChangeType::TombstoneContent {
-                                is_root: content.root_content_id.is_none(),
-                            },
-                            timestamp_secs(),
-                        ));
-                    } else {
-                        content
-                            .extraction_graph_names
-                            .retain(|g| g != &state_change.object_id);
-                    }
-                    content_metadata.push(content);
-                }
-            }
-            StateMachineUpdateRequest {
-                payload: RequestPayload::TombstoneContent { content_metadata },
-                new_state_changes,
-                state_changes_processed: vec![StateChangeProcessed {
-                    state_change_id: state_change.id,
-                    processed_at: timestamp_secs(),
-                }],
-            }
-        };
-        self.forwardable_raft.client_write(req).await?;
-        Ok(())
-    }
-
-    pub async fn delete_extraction_graph(
-        &self,
-        namespace: String,
-        extraction_graph: String,
-    ) -> Result<()> {
-        let graph = self
-            .state_machine
-            .get_extraction_graphs_by_name(&namespace, &[&extraction_graph])?;
-        if !matches!(graph.first(), Some(Some(_))) {
-            return Err(anyhow!(
-                "extraction graph {}:{} not found",
-                namespace,
-                extraction_graph
-            ));
-        }
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::DeleteExtractionGraphByName {
-                extraction_graph: extraction_graph.clone(),
-                namespace,
-            },
-            new_state_changes: vec![StateChange::new(
-                extraction_graph,
-                ChangeType::ExtractionGraphDeleted {
-                    start_content_id: vec![],
-                },
-                timestamp_secs(),
-            )],
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft.client_write(req).await?;
-        Ok(())
-    }
-
     /// This method uses the content id to fetch the associated extraction
     /// policies based on certain filters and checks which policies can be
     /// applied to the content It's the mirror equivalent to
@@ -675,42 +580,6 @@ impl App {
         Ok(())
     }
 
-    pub async fn add_graph_to_content(
-        &self,
-        namespace: String,
-        extraction_graph: String,
-        content_ids: Vec<String>,
-    ) -> Result<()> {
-        // Take a reference on the contents until the new graph change is processed.
-        let new_state_changes = content_ids
-            .iter()
-            .map(|id| {
-                StateChange::new_with_refcnt(
-                    id.to_string(),
-                    ChangeType::AddGraphToContent {
-                        extraction_graph: extraction_graph.clone(),
-                    },
-                    timestamp_secs(),
-                    id.to_string(),
-                )
-            })
-            .collect();
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::AddGraphToContent {
-                extraction_graph,
-                namespace,
-                content_ids,
-            },
-            new_state_changes,
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft
-            .client_write(req)
-            .await
-            .map_err(|e| anyhow!("unable to add graph to content: {}", e.to_string()))?;
-        Ok(())
-    }
-
     pub async fn get_extraction_graph_links(
         &self,
         namespace: &str,
@@ -779,9 +648,7 @@ impl App {
             ));
         }
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateExtractionGraph {
-                extraction_graph,
-            },
+            payload: RequestPayload::CreateExtractionGraph { extraction_graph },
             new_state_changes: vec![],
             state_changes_processed: vec![],
         };
@@ -1136,95 +1003,6 @@ impl App {
             .map_err(|e| anyhow!("unable to create new content metadata: {}", e.to_string()))?;
 
         Ok(statuses)
-    }
-
-    async fn tombstone_content_root_batch(
-        &self,
-        roots: Vec<internal_api::ContentMetadata>,
-        state_changes_processed: Vec<StateChangeProcessed>,
-    ) -> Result<(), anyhow::Error> {
-        let mut state_changes = vec![];
-
-        for root in roots.iter() {
-            state_changes.push(StateChange::new(
-                root.id.to_string(),
-                ChangeType::TombstoneContentTree,
-                timestamp_secs(),
-            ));
-        }
-
-        let mut updated_content = Vec::new();
-
-        for root in roots {
-            let tree = if root.latest {
-                self.state_machine.get_content_tree_metadata(&root.id.id)
-            } else {
-                self.state_machine
-                    .get_content_tree_metadata_with_version(&root.id)
-            }?;
-            for content in tree {
-                let mut content_metadata = content.clone();
-                content_metadata.tombstoned = true;
-                updated_content.push(content_metadata);
-            }
-        }
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::TombstoneContentTree {
-                content_metadata: updated_content,
-            },
-            new_state_changes: state_changes,
-            state_changes_processed,
-        };
-
-        self.forwardable_raft
-            .client_write(req)
-            .await
-            .map_err(|e| anyhow!("Unable to tombstone content metadata: {}", e.to_string()))?;
-
-        Ok(())
-    }
-
-    /// This method will accept a vector of content ids to tombstone. It will
-    /// get the latest version of each content id and tombstone that one
-    pub async fn tombstone_content_batch(
-        &self,
-        content_ids: &[String],
-    ) -> Result<(), anyhow::Error> {
-        let mut roots = Vec::new();
-
-        for content_id in content_ids.iter() {
-            let root = self
-                .state_machine
-                .get_latest_version_of_content(content_id)
-                .map_err(|e| {
-                    anyhow!(
-                        "Unable to get latest version of content {}: {}",
-                        content_id,
-                        e
-                    )
-                })?
-                .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
-            roots.push(root);
-        }
-        self.tombstone_content_root_batch(roots, Vec::new()).await
-    }
-
-    pub async fn tombstone_content_batch_with_version(
-        &self,
-        content_ids: &[ContentMetadataId],
-        state_changes_processed: Vec<StateChangeProcessed>,
-    ) -> Result<(), anyhow::Error> {
-        let mut roots = Vec::new();
-        for content_id in content_ids.iter() {
-            let root = self
-                .state_machine
-                .get_content_by_id_and_version(content_id)
-                .await?
-                .ok_or_else(|| anyhow!("Content with id {} not found", content_id))?;
-            roots.push(root);
-        }
-        self.tombstone_content_root_batch(roots, state_changes_processed)
-            .await
     }
 
     /// Get content based on id's without version. Will fetch the latest version

@@ -115,6 +115,7 @@ pub enum StateMachineColumns {
     GarbageCollectionTasks,             //  GCTaskId -> GCTask
     TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
     StateChanges,                       //  StateChangeId -> StateChange
+    IngestedObjects,                    //  NS_Graph_Id -> IngestedObject
     ContentTable,                       //  ContentId -> ContentMetadata
     ExtractionPolicies,                 //  ExtractionPolicyId -> ExtractionPolicy
     Extractors,                         //  ExtractorName -> ExtractorDescription
@@ -275,7 +276,9 @@ where
             }
             lookup_keys.push((data_cf, key_reference(&key)?));
             keys.push(key);
-            if lookup_keys.len() >= limit && get_entries(mem::take(&mut lookup_keys), mem::take(&mut keys))? {
+            if lookup_keys.len() >= limit &&
+                get_entries(mem::take(&mut lookup_keys), mem::take(&mut keys))?
+            {
                 break;
             }
         } else {
@@ -527,9 +530,7 @@ pub fn new_content_stream(
 }
 
 impl StateMachineStore {
-    async fn new(
-        db_path: PathBuf,
-    ) -> Result<StateMachineStore, StorageError<NodeId>> {
+    async fn new(db_path: PathBuf) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChangeId::new(std::u64::MAX));
         let (gc_tasks_tx, _) = broadcast::channel(100);
 

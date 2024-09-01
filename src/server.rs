@@ -81,16 +81,13 @@ pub struct NamespaceEndpointState {
             list_executors,
             list_content,
             new_content_stream,
-            delete_content,
             get_content_metadata,
             list_state_changes,
             create_extraction_graph,
-            delete_extraction_graph,
             list_extraction_graphs,
             link_extraction_graphs,
             extraction_graph_links,
             upload_file,
-            add_graph_to_content,
             list_tasks,
             get_content_tree_metadata,
             download_content,
@@ -151,12 +148,6 @@ impl Server {
         ));
         let ingestion_server_id = nanoid::nanoid!(16);
 
-        self.start_gc_tasks_stream(
-            coordinator_client.clone(),
-            &ingestion_server_id,
-            data_manager.clone(),
-            shutdown_rx.clone(),
-        );
         let namespace_endpoint_state = NamespaceEndpointState {
             data_manager: data_manager.clone(),
             coordinator_client: coordinator_client.clone(),
@@ -193,16 +184,8 @@ impl Server {
                 post(upload_file).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/extraction_graphs/:extraction_graph",
-                delete(delete_extraction_graph).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/content",
                 get(list_content).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/extraction_graphs/:extraction_graph/content",
-                post(add_graph_to_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/extraction_policies/:extraction_policy/tasks",
@@ -231,10 +214,6 @@ impl Server {
             .route(
                 "/namespaces/:namespace/content/:content_id/metadata",
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/content/:content_id",
-                delete(delete_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces",
@@ -323,114 +302,6 @@ impl Server {
         }
 
         Ok(())
-    }
-
-    pub fn start_gc_tasks_stream(
-        &self,
-        coordinator_client: Arc<CoordinatorClient>,
-        ingestion_server_id: &str,
-        data_manager: Arc<DataManager>,
-        shutdown_rx: watch::Receiver<bool>,
-    ) {
-        let mut attempt = 0;
-        let delay = 2;
-        let ingestion_server_id = ingestion_server_id.to_string();
-        let coordinator_addr = self.config.coordinator_addr.clone();
-
-        tokio::spawn(async move {
-            loop {
-                let client_result = coordinator_client.get().await;
-                if let Err(e) = client_result {
-                    attempt += 1;
-                    tracing::error!(
-                        "Attempt {}: Unable to connect to the coordinator: {}",
-                        attempt,
-                        e
-                    );
-                    tokio::time::sleep(Duration::from_secs(delay)).await;
-                    continue;
-                }
-
-                let mut client = client_result.unwrap();
-
-                let (ack_tx, mut ack_rx) = mpsc::channel(4);
-
-                let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
-                let heartbeat = GcTaskAcknowledgement {
-                    task_id: "".to_string(),
-                    completed: false,
-                    ingestion_server_id: ingestion_server_id.clone(),
-                };
-                let request = tonic::Request::new(async_stream::stream! {
-                    loop {
-                        tokio::select! {
-                            _ = interval.tick() => {
-                                yield heartbeat.clone();
-                            },
-                            ack = ack_rx.recv() => {
-                                if let Some(ack) = ack {
-                                    yield ack;
-                                }
-                            }
-                        }
-                    }
-                });
-
-                match client.gc_tasks_stream(request).await {
-                    Ok(response) => {
-                        let mut stream = response.into_inner();
-
-                        while let Ok(Some(command)) = stream.message().await {
-                            if let Some(gc_task) = command.gc_task {
-                                if let Err(e) = data_manager.perform_gc_task(&gc_task).await {
-                                    tracing::error!(
-                                        "Failed to delete content for task {:?}: {}",
-                                        gc_task,
-                                        e
-                                    );
-                                    continue;
-                                }
-                                if let Err(e) = ack_tx
-                                    .send(GcTaskAcknowledgement {
-                                        task_id: gc_task.task_id.clone(),
-                                        completed: true,
-                                        ingestion_server_id: ingestion_server_id.clone(),
-                                    })
-                                    .await
-                                {
-                                    tracing::error!(
-                                        "Failed to send ack for task {:?}: {}",
-                                        gc_task,
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to start gc_tasks_stream: {}, address: {}, retrying...",
-                            e,
-                            coordinator_addr.clone()
-                        );
-                        attempt += 1;
-                        tokio::time::sleep(Duration::from_secs(delay)).await;
-
-                        if *shutdown_rx.borrow() {
-                            tracing::info!("shutting down gc_tasks_stream loop");
-                            break;
-                        }
-
-                        continue;
-                    }
-                }
-
-                if *shutdown_rx.borrow() {
-                    tracing::info!("shutting down gc_tasks_stream loop");
-                    break;
-                }
-            }
-        });
     }
 }
 
@@ -673,7 +544,6 @@ async fn extraction_graph_links(
     Ok(Json(res))
 }
 
-
 /// List all the content ingested into an extraction graph
 #[tracing::instrument]
 #[utoipa::path(
@@ -720,54 +590,6 @@ async fn list_content(
         .await
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(response))
-}
-
-/// Deletes the content with a given id and also all the extracted content by
-/// extraction graphs.
-#[tracing::instrument]
-#[utoipa::path(
-    delete,
-    path = "/namespaces/{namespace}/content/{content_id}",
-    params(
-        ("namespace" = String, Path, description = "Namespace of the content"),
-        ("content_id" = String, Path, description = "ID of the content to delete")
-    ),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "Deletes specified pieces of content", body = ()),
-        (status = BAD_REQUEST, description = "Unable to find a piece of content to delete")
-    ),
-)]
-#[axum::debug_handler]
-async fn delete_content(
-    Path((namespace, content_id)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<()>, IndexifyAPIError> {
-    let request = indexify_coordinator::TombstoneContentRequest {
-        namespace: namespace.clone(),
-        content_ids: vec![content_id],
-    };
-
-    state
-        .coordinator_client
-        .get()
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to get coordinator client: {}", e).as_str(),
-            )
-        })?
-        .tombstone_content(request)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to delete content: {}", e).as_str(),
-            )
-        })?;
-
-    Ok(Json(()))
 }
 
 /// Get content metadata for a specific content id
@@ -936,33 +758,6 @@ async fn list_extraction_graphs(
     }))
 }
 
-/// Delete extraction graph
-#[utoipa::path(
-    delete,
-    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}",
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "Extraction graph deleted successfully"),
-        (status = BAD_REQUEST, description = "Unable to delete extraction graph")
-    ),
-)]
-async fn delete_extraction_graph(
-    Path((namespace, graph)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-) -> Result<(), IndexifyAPIError> {
-    state
-        .data_manager
-        .delete_extraction_graph(namespace, graph)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to delete extraction graph: {}", e),
-            )
-        })?;
-    Ok(())
-}
-
 #[allow(dead_code)]
 #[derive(ToSchema)]
 struct UploadType {
@@ -1056,15 +851,12 @@ async fn upload_file_inner(
     }
     if let Some(write_result) = write_result {
         let content_mime = labels.get("mime_type").and_then(|v| v.as_str());
-        let content_mime = content_mime
-            .map(Mime::from_str)
-            .transpose()
-            .map_err(|e| {
-                IndexifyAPIError::new(
-                    StatusCode::BAD_REQUEST,
-                    &format!("invalid mime type: {}", e),
-                )
-            })?;
+        let content_mime = content_mime.map(Mime::from_str).transpose().map_err(|e| {
+            IndexifyAPIError::new(
+                StatusCode::BAD_REQUEST,
+                &format!("invalid mime type: {}", e),
+            )
+        })?;
         let content_mime =
             content_mime.unwrap_or(mime_guess::from_ext(&ext).first_or_octet_stream());
         let labels = internal_api::utils::convert_map_serde_to_prost_json(labels).map_err(|e| {
@@ -1223,40 +1015,6 @@ async fn new_content_stream(
         }
     });
     Ok(axum::response::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default()))
-}
-
-/// Run extraction graph for a list of existing content
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/content",
-    params(
-        ("namespace" = String, Path, description = "Namespace of the content"),
-        ("extraction_graph" = String, Path, description = "Extraction graph name"),
-    ),
-    request_body = AddGraphToContent,
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "Content extraction started successfully"),
-        (status = BAD_REQUEST, description = "Unable to start content extraction")
-    ),
-)]
-#[axum::debug_handler]
-async fn add_graph_to_content(
-    Path((namespace, extraction_graph)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<AddGraphToContent>,
-) -> Result<(), IndexifyAPIError> {
-    state
-        .data_manager
-        .add_graph_to_content(namespace, extraction_graph, payload.content_ids)
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to extract content: {}", e),
-            )
-        })?;
-    Ok(())
 }
 
 /// List all executors running extractors in the cluster
@@ -1425,7 +1183,6 @@ async fn list_task_assignments(
         .map_err(IndexifyAPIError::internal_error)?;
     Ok(Json(response))
 }
-
 
 #[axum::debug_handler]
 #[tracing::instrument]

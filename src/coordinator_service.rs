@@ -210,20 +210,7 @@ impl CoordinatorServiceServer {
 impl CoordinatorService for CoordinatorServiceServer {
     type ContentStreamStream =
         Pin<Box<dyn tokio_stream::Stream<Item = Result<ContentStreamItem, Status>> + Send + Sync>>;
-    type GCTasksStreamStream = GCTasksResponseStream;
     type HeartbeatStream = HBResponseStream;
-
-    async fn delete_extraction_graph(
-        &self,
-        request: tonic::Request<indexify_coordinator::DeleteExtractionGraphRequest>,
-    ) -> Result<tonic::Response<indexify_coordinator::Empty>, tonic::Status> {
-        let request = request.into_inner();
-        self.coordinator
-            .delete_extraction_graph(request.namespace, request.extraction_graph)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(indexify_coordinator::Empty {}))
-    }
 
     async fn content_stream(
         &self,
@@ -267,25 +254,6 @@ impl CoordinatorService for CoordinatorServiceServer {
                 }
             });
         Ok(tonic::Response::new(Box::pin(stream)))
-    }
-
-    async fn add_graph_to_content(
-        &self,
-        request: tonic::Request<indexify_coordinator::AddGraphToContentRequest>,
-    ) -> Result<tonic::Response<indexify_coordinator::AddGraphToContentResponse>, tonic::Status>
-    {
-        let request = request.into_inner();
-        self.coordinator
-            .add_graph_to_content(
-                request.namespace,
-                request.extraction_graph,
-                request.content_ids,
-            )
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(
-            indexify_coordinator::AddGraphToContentResponse {},
-        ))
     }
 
     async fn extraction_graph_links(
@@ -408,19 +376,6 @@ impl CoordinatorService for CoordinatorServiceServer {
                 .ok_or_else(|| tonic::Status::aborted("result invalid"))?
                 as i32,
         }))
-    }
-
-    async fn tombstone_content(
-        &self,
-        request: tonic::Request<TombstoneContentRequest>,
-    ) -> Result<tonic::Response<TombstoneContentResponse>, tonic::Status> {
-        let req = request.into_inner();
-        let content_ids = req.content_ids;
-        self.coordinator
-            .tombstone_content_metadatas(&content_ids)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(TombstoneContentResponse {}))
     }
 
     async fn list_content(
@@ -611,124 +566,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
 
         Ok(tonic::Response::new(RemoveIngestionServerResponse {}))
-    }
-
-    async fn create_gc_tasks(
-        &self,
-        request: tonic::Request<CreateGcTasksRequest>,
-    ) -> Result<tonic::Response<CreateGcTasksResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let state_change = request.state_change.ok_or_else(|| {
-            tonic::Status::aborted("missing state change in create gc tasks request")
-        })?;
-        let state_change: indexify_internal_api::StateChange =
-            state_change.try_into().map_err(|e| {
-                tonic::Status::aborted(format!(
-                    "unable to convert state change to internal api: {}",
-                    e
-                ))
-            })?;
-        self.coordinator
-            .create_gc_tasks(state_change)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(CreateGcTasksResponse {}))
-    }
-
-    async fn gc_tasks_stream(
-        &self,
-        request: tonic::Request<Streaming<GcTaskAcknowledgement>>,
-    ) -> Result<tonic::Response<Self::GCTasksStreamStream>, Status> {
-        let mut gc_task_allocation_event_rx = self.coordinator.subscribe_to_gc_events().await;
-        let (tx, rx) = mpsc::channel(100);
-
-        let mut inbound = request.into_inner();
-        let coordinator_clone = self.coordinator.clone();
-        let mut shutdown_rx = self.shutdown_rx.clone();
-
-        let mut ingestion_server_id: Option<String> = None;
-
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = shutdown_rx.changed() => {
-                        info!("Shutdown signal received, terminating gc_tasks_stream.");
-                        break;
-                    }
-                    task_ack = inbound.next() => {
-                        match task_ack {
-                            Some(Ok(task_ack)) => {
-                                //  check for heartbeat
-                                if task_ack.task_id.is_empty() {
-                                    ingestion_server_id.replace(task_ack.ingestion_server_id);
-                                    if let Err(e) = coordinator_clone.register_ingestion_server(ingestion_server_id.as_ref().unwrap()).await {
-                                        tracing::error!("Error registering ingestion server: {}", e);
-                                    }
-                                    continue;
-                                }
-
-                                tracing::info!(
-                                    "Received gc task acknowledgement {:?}, marking the gc task as complete",
-                                    task_ack
-                                );
-                                if let Err(e) = coordinator_clone
-                                .update_gc_task(&task_ack.task_id, task_ack.completed.into())
-                                .await
-                                {
-                                    tracing::error!(
-                                        "Error updating GC task with id {}: {}",
-                                        task_ack.task_id,
-                                        e
-                                    );
-                                }
-                            }
-                            Some(Err(e)) => {
-                                tracing::error!("Stream error, likely disconnection: {}", e);
-                                break;
-                            }
-                            None => {
-                                tracing::info!("GC tasks stream ended, client disconnected.");
-                                break;
-                            }
-                        }
-                    }
-                    task_allocation_event = gc_task_allocation_event_rx.recv() => {
-                        match task_allocation_event {
-                            Ok(task_allocation) => {
-                                let task = task_allocation;
-                                if let Some(ref server_id) = ingestion_server_id {
-                                    if task.assigned_to.is_some() && &task.assigned_to.clone().unwrap() == server_id {
-                                        let serialized_task: GcTask = task.into();
-                                        let command = CoordinatorCommand {
-                                            gc_task: Some(serialized_task)
-                                        };
-                                        tx.send(command).await.unwrap();
-                                    }
-                                }
-                            }
-                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                                tracing::error!("Skipped {} messages due to lagging", n);
-                            }
-                            Err(e) => {
-                                tracing::error!("Error receiving gc task allocation event: {}", e);
-                            }
-                        }
-                    }
-                }
-            }
-
-            //  Notify the garbage collector that the ingestion server has disconnected
-            if let Some(server_id) = ingestion_server_id {
-                if let Err(e) = coordinator_clone.remove_ingestion_server(&server_id).await {
-                    tracing::error!("Error removing ingestion server: {}", e);
-                }
-            }
-        });
-
-        let response_stream = ReceiverStream::new(rx).map(Ok);
-        Ok(tonic::Response::new(
-            Box::pin(response_stream) as Self::GCTasksStreamStream
-        ))
     }
 
     async fn heartbeat(

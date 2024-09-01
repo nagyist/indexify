@@ -1117,36 +1117,6 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn tombstone_content(
-            &mut self,
-            request: impl tonic::IntoRequest<super::TombstoneContentRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::TombstoneContentResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/TombstoneContent",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "TombstoneContent",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
         pub async fn get_content_metadata(
             &mut self,
             request: impl tonic::IntoRequest<super::GetContentMetadataRequest>,
@@ -1473,68 +1443,6 @@ pub mod coordinator_service_client {
                     ),
                 );
             self.inner.unary(req, path, codec).await
-        }
-        pub async fn create_gc_tasks(
-            &mut self,
-            request: impl tonic::IntoRequest<super::CreateGcTasksRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CreateGcTasksResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/CreateGCTasks",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "CreateGCTasks",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn gc_tasks_stream(
-            &mut self,
-            request: impl tonic::IntoStreamingRequest<
-                Message = super::GcTaskAcknowledgement,
-            >,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::CoordinatorCommand>>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/GCTasksStream",
-            );
-            let mut req = request.into_streaming_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "GCTasksStream",
-                    ),
-                );
-            self.inner.streaming(req, path, codec).await
         }
         pub async fn heartbeat(
             &mut self,
@@ -1923,36 +1831,6 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn add_graph_to_content(
-            &mut self,
-            request: impl tonic::IntoRequest<super::AddGraphToContentRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::AddGraphToContentResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/AddGraphToContent",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "AddGraphToContent",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
         pub async fn content_stream(
             &mut self,
             request: impl tonic::IntoRequest<super::ContentStreamRequest>,
@@ -1983,33 +1861,6 @@ pub mod coordinator_service_client {
                 );
             self.inner.server_streaming(req, path, codec).await
         }
-        pub async fn delete_extraction_graph(
-            &mut self,
-            request: impl tonic::IntoRequest<super::DeleteExtractionGraphRequest>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/DeleteExtractionGraph",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "DeleteExtractionGraph",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
     }
 }
 /// Generated server implementations.
@@ -2024,13 +1875,6 @@ pub mod coordinator_service_server {
             request: tonic::Request<super::CreateContentRequest>,
         ) -> std::result::Result<
             tonic::Response<super::CreateContentResponse>,
-            tonic::Status,
-        >;
-        async fn tombstone_content(
-            &self,
-            request: tonic::Request<super::TombstoneContentRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::TombstoneContentResponse>,
             tonic::Status,
         >;
         async fn get_content_metadata(
@@ -2108,26 +1952,6 @@ pub mod coordinator_service_server {
             request: tonic::Request<super::RemoveIngestionServerRequest>,
         ) -> std::result::Result<
             tonic::Response<super::RemoveIngestionServerResponse>,
-            tonic::Status,
-        >;
-        async fn create_gc_tasks(
-            &self,
-            request: tonic::Request<super::CreateGcTasksRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CreateGcTasksResponse>,
-            tonic::Status,
-        >;
-        /// Server streaming response type for the GCTasksStream method.
-        type GCTasksStreamStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::CoordinatorCommand, tonic::Status>,
-            >
-            + Send
-            + 'static;
-        async fn gc_tasks_stream(
-            &self,
-            request: tonic::Request<tonic::Streaming<super::GcTaskAcknowledgement>>,
-        ) -> std::result::Result<
-            tonic::Response<Self::GCTasksStreamStream>,
             tonic::Status,
         >;
         /// Server streaming response type for the Heartbeat method.
@@ -2218,13 +2042,6 @@ pub mod coordinator_service_server {
             tonic::Response<super::ExtractionGraphLinksResponse>,
             tonic::Status,
         >;
-        async fn add_graph_to_content(
-            &self,
-            request: tonic::Request<super::AddGraphToContentRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::AddGraphToContentResponse>,
-            tonic::Status,
-        >;
         /// Server streaming response type for the ContentStream method.
         type ContentStreamStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::ContentStreamItem, tonic::Status>,
@@ -2238,10 +2055,6 @@ pub mod coordinator_service_server {
             tonic::Response<Self::ContentStreamStream>,
             tonic::Status,
         >;
-        async fn delete_extraction_graph(
-            &self,
-            request: tonic::Request<super::DeleteExtractionGraphRequest>,
-        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct CoordinatorServiceServer<T: CoordinatorService> {
@@ -2354,56 +2167,6 @@ pub mod coordinator_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = CreateContentSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/indexify_coordinator.CoordinatorService/TombstoneContent" => {
-                    #[allow(non_camel_case_types)]
-                    struct TombstoneContentSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<
-                        T: CoordinatorService,
-                    > tonic::server::UnaryService<super::TombstoneContentRequest>
-                    for TombstoneContentSvc<T> {
-                        type Response = super::TombstoneContentResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::TombstoneContentRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as CoordinatorService>::tombstone_content(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = TombstoneContentSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -2953,103 +2716,6 @@ pub mod coordinator_service_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/indexify_coordinator.CoordinatorService/CreateGCTasks" => {
-                    #[allow(non_camel_case_types)]
-                    struct CreateGCTasksSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<
-                        T: CoordinatorService,
-                    > tonic::server::UnaryService<super::CreateGcTasksRequest>
-                    for CreateGCTasksSvc<T> {
-                        type Response = super::CreateGcTasksResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::CreateGcTasksRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as CoordinatorService>::create_gc_tasks(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = CreateGCTasksSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/indexify_coordinator.CoordinatorService/GCTasksStream" => {
-                    #[allow(non_camel_case_types)]
-                    struct GCTasksStreamSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<
-                        T: CoordinatorService,
-                    > tonic::server::StreamingService<super::GcTaskAcknowledgement>
-                    for GCTasksStreamSvc<T> {
-                        type Response = super::CoordinatorCommand;
-                        type ResponseStream = T::GCTasksStreamStream;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                tonic::Streaming<super::GcTaskAcknowledgement>,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as CoordinatorService>::gc_tasks_stream(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = GCTasksStreamSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
@@ -3697,56 +3363,6 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/AddGraphToContent" => {
-                    #[allow(non_camel_case_types)]
-                    struct AddGraphToContentSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<
-                        T: CoordinatorService,
-                    > tonic::server::UnaryService<super::AddGraphToContentRequest>
-                    for AddGraphToContentSvc<T> {
-                        type Response = super::AddGraphToContentResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::AddGraphToContentRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as CoordinatorService>::add_graph_to_content(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = AddGraphToContentSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/indexify_coordinator.CoordinatorService/ContentStream" => {
                     #[allow(non_camel_case_types)]
                     struct ContentStreamSvc<T: CoordinatorService>(pub Arc<T>);
@@ -3791,56 +3407,6 @@ pub mod coordinator_service_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.server_streaming(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/indexify_coordinator.CoordinatorService/DeleteExtractionGraph" => {
-                    #[allow(non_camel_case_types)]
-                    struct DeleteExtractionGraphSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<
-                        T: CoordinatorService,
-                    > tonic::server::UnaryService<super::DeleteExtractionGraphRequest>
-                    for DeleteExtractionGraphSvc<T> {
-                        type Response = super::Empty;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::DeleteExtractionGraphRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as CoordinatorService>::delete_extraction_graph(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = DeleteExtractionGraphSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

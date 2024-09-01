@@ -44,10 +44,7 @@ impl fmt::Debug for DataManager {
 }
 
 impl DataManager {
-    pub fn new(
-        blob_storage: Arc<BlobStorage>,
-        coordinator_client: Arc<CoordinatorClient>,
-    ) -> Self {
+    pub fn new(blob_storage: Arc<BlobStorage>, coordinator_client: Arc<CoordinatorClient>) -> Self {
         DataManager {
             blob_storage,
             coordinator_client,
@@ -56,40 +53,6 @@ impl DataManager {
 
     pub async fn get_coordinator_client(&self) -> Result<CoordinatorServiceClient> {
         self.coordinator_client.get().await
-    }
-
-    pub async fn delete_extraction_graph(
-        &self,
-        namespace: String,
-        extraction_graph: String,
-    ) -> Result<()> {
-        let req = indexify_coordinator::DeleteExtractionGraphRequest {
-            namespace,
-            extraction_graph,
-        };
-        self.get_coordinator_client()
-            .await?
-            .delete_extraction_graph(req)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn add_graph_to_content(
-        &self,
-        namespace: String,
-        extraction_graph: String,
-        content_ids: Vec<String>,
-    ) -> Result<()> {
-        let req = indexify_coordinator::AddGraphToContentRequest {
-            namespace,
-            content_ids,
-            extraction_graph,
-        };
-        self.get_coordinator_client()
-            .await?
-            .add_graph_to_content(req)
-            .await?;
-        Ok(())
     }
 
     pub async fn list_extraction_graphs(
@@ -315,7 +278,6 @@ impl DataManager {
             _ => Ok(()),
         }
     }
-
 
     #[tracing::instrument]
     pub async fn delete_content(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
