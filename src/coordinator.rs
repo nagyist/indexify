@@ -257,17 +257,6 @@ impl Coordinator {
             .await
     }
 
-    pub async fn update_labels(
-        &self,
-        namespace: &str,
-        content_id: &str,
-        labels: HashMap<String, serde_json::Value>,
-    ) -> Result<()> {
-        self.shared_state
-            .update_labels(namespace, content_id, labels)
-            .await
-    }
-
     pub async fn get_extraction_policy(
         &self,
         namespace: &str,

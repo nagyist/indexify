@@ -274,23 +274,6 @@ pub struct Index {
     pub embedding_schema: EmbeddingSchema,
 }
 
-impl TryFrom<indexify_coordinator::Index> for Index {
-    type Error = anyhow::Error;
-
-    fn try_from(value: indexify_coordinator::Index) -> Result<Self> {
-        Ok(Self {
-            name: value.name,
-            embedding_schema: serde_json::from_str(&value.schema).map_err(|e| {
-                anyhow!(
-                    "unable to create embedding schema from: {}, error: {}",
-                    value.schema,
-                    e.to_string()
-                )
-            })?,
-        })
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ListIndexesResponse {
     pub indexes: Vec<Index>,

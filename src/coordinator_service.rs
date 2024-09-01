@@ -499,7 +499,7 @@ impl CoordinatorService for CoordinatorServiceServer {
             .extraction_policies(creation_result.extraction_policies.clone())
             .build()
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let indexes = self
+        let _ = self
             .coordinator
             .create_extraction_graph(graph.clone())
             .await
@@ -517,14 +517,9 @@ impl CoordinatorService for CoordinatorServiceServer {
             .iter()
             .map(|extractor| (extractor.name.clone(), extractor.clone().into()))
             .collect();
-        let indexes = indexes
-            .into_iter()
-            .map(|index| index.into())
-            .collect::<Vec<indexify_coordinator::Index>>();
         Ok(tonic::Response::new(CreateExtractionGraphResponse {
             extractors,
             policies,
-            indexes,
         }))
     }
 

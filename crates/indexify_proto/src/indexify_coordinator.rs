@@ -125,59 +125,6 @@ pub struct GetExtractorCoordinatesResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListIndexesRequest {
-    #[prost(string, tag = "1")]
-    pub namespace: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListIndexesResponse {
-    #[prost(message, repeated, tag = "1")]
-    pub indexes: ::prost::alloc::vec::Vec<Index>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetIndexRequest {
-    #[prost(string, tag = "1")]
-    pub namespace: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub name: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct GetIndexResponse {
-    #[prost(message, optional, tag = "1")]
-    pub index: ::core::option::Option<Index>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateIndexesStateRequest {
-    #[prost(message, repeated, tag = "1")]
-    pub indexes: ::prost::alloc::vec::Vec<Index>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdateIndexesStateResponse {}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct Index {
-    #[prost(string, tag = "1")]
-    pub name: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub namespace: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
-    pub table_name: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
-    pub schema: ::prost::alloc::string::String,
-    #[prost(string, tag = "5")]
-    pub extraction_policy: ::prost::alloc::string::String,
-    #[prost(string, tag = "6")]
-    pub extractor: ::prost::alloc::string::String,
-    #[prost(string, tag = "7")]
-    pub graph_name: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Embedding {
     #[prost(float, repeated, tag = "1")]
     pub embedding: ::prost::alloc::vec::Vec<f32>,
@@ -575,8 +522,6 @@ pub struct CreateExtractionGraphResponse {
         ::prost::alloc::string::String,
         ExtractionPolicy,
     >,
-    #[prost(message, repeated, tag = "5")]
-    pub indexes: ::prost::alloc::vec::Vec<Index>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

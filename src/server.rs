@@ -81,7 +81,6 @@ pub struct NamespaceEndpointState {
             list_executors,
             list_content,
             new_content_stream,
-            update_content,
             delete_content,
             get_content_metadata,
             list_state_changes,
@@ -232,12 +231,6 @@ impl Server {
             .route(
                 "/namespaces/:namespace/content/:content_id/metadata",
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/content/:content_id",
-                put(update_content)
-                    .with_state(namespace_endpoint_state.clone())
-                    .clone(),
             )
             .route(
                 "/namespaces/:namespace/content/:content_id",
@@ -1155,113 +1148,6 @@ async fn upload_file(
         });
     }
     res
-}
-
-#[allow(dead_code)]
-#[derive(ToSchema)]
-struct UpdateContentType {
-    #[schema(format = "binary")]
-    file: String,
-}
-
-/// Update a content. All the extraction graphs associated with the content will
-/// be run if the content has changed.
-#[tracing::instrument]
-#[utoipa::path(
-    put,
-    path = "/namespaces/{namespace}/content/{content_id}",
-    request_body(content_type = "multipart/form-data", content = inline(UpdateContentType)),
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "Updates a specified piece of content"),
-        (status = BAD_REQUEST, description = "Unable to find a piece of content to update")
-    ),
-)]
-#[axum::debug_handler]
-async fn update_content(
-    Path((namespace, content_id)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    mut files: Multipart,
-) -> Result<(), IndexifyAPIError> {
-    //  check that the content exists
-    let content_metadata = state
-        .data_manager
-        .get_content_metadata(&namespace, vec![content_id.clone()])
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-
-    let content_metadata = content_metadata
-        .first()
-        .ok_or_else(|| IndexifyAPIError::not_found(&format!("content {} not found", content_id)))?;
-
-    while let Some(file) = files.next_field().await.unwrap() {
-        let name = file
-            .file_name()
-            .ok_or(IndexifyAPIError::new(
-                StatusCode::BAD_REQUEST,
-                "file_name is not present",
-            ))?
-            .to_string();
-        info!("user provided file name = {:?}", name);
-        let ext = std::path::Path::new(&name)
-            .extension()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default();
-        let name = nanoid::nanoid!(16);
-        let name = if !ext.is_empty() {
-            format!("{}.{}", name, ext)
-        } else {
-            name
-        };
-        let content_mime = mime_guess::from_ext(ext).first_or_octet_stream();
-        info!("writing to blob store, file name = {:?}", name);
-
-        let stream = file.map(|res| res.map_err(|err| anyhow::anyhow!(err)));
-        let new_content_metadata = state
-            .data_manager
-            .upload_file(
-                &namespace,
-                stream,
-                &name,
-                content_mime,
-                content_metadata.labels.clone(),
-                Some(&content_metadata.id),
-                vec![],
-            )
-            .await
-            .map_err(|e| {
-                IndexifyAPIError::new(
-                    StatusCode::BAD_REQUEST,
-                    &format!("failed to upload file: {}", e),
-                )
-            })?;
-
-        if new_content_metadata.hash == content_metadata.hash {
-            info!("the content received is the same, not creating content metadata and removing the created file");
-            let _ = state
-                .data_manager
-                .delete_file(&new_content_metadata.storage_url)
-                .await
-                .map_err(|e| {
-                    tracing::error!("failed to delete file: {}", e);
-                });
-            return Ok(());
-        }
-
-        state
-            .data_manager
-            .create_content_metadata(new_content_metadata)
-            .await
-            .map_err(|e| {
-                IndexifyAPIError::new(
-                    StatusCode::BAD_REQUEST,
-                    &format!("failed to create content for file: {}", e),
-                )
-            })?;
-    }
-
-    Ok(())
 }
 
 async fn get_new_content_stream(

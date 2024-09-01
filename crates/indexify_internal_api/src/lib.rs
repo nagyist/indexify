@@ -200,38 +200,6 @@ impl Hash for Index {
     }
 }
 
-impl From<Index> for indexify_coordinator::Index {
-    fn from(value: Index) -> Self {
-        Self {
-            name: value.name,
-            table_name: value.table_name,
-            schema: value.schema,
-            extractor: value.extractor_name,
-            extraction_policy: value.extraction_policy_name,
-            namespace: value.namespace,
-            graph_name: value.graph_name,
-        }
-    }
-}
-
-impl From<indexify_coordinator::Index> for Index {
-    fn from(value: indexify_coordinator::Index) -> Self {
-        let mut index = Index {
-            id: "".to_string(),
-            name: value.name,
-            table_name: value.table_name,
-            schema: value.schema,
-            extractor_name: value.extractor,
-            extraction_policy_name: value.extraction_policy,
-            namespace: value.namespace,
-            graph_name: value.graph_name,
-            visibility: false,
-        };
-        index.id = index.id();
-        index
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EmbeddingSchema {
     pub dim: usize,
