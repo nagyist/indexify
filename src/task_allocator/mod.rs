@@ -1,8 +1,8 @@
 use anyhow::Result;
+use indexify_internal_api::Task;
 
 use self::planner::TaskAllocationPlan;
 use crate::state::SharedState;
-use indexify_internal_api::Task;
 
 pub mod planner;
 

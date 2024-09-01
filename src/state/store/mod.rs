@@ -116,6 +116,7 @@ pub enum StateMachineColumns {
     GarbageCollectionTasks,             //  GCTaskId -> GCTask
     ComputeGraphs,                      //  NS_<CG NAME>_ID
     IngestedDataObjects,                //  NS_<CG_NAME>_ID
+    GraphInvocationCtx,                 //  NS_<CG_NAME>_<Ingested_DO_ID>_<Invocation_ID>
     DataObjects,                        //  NS_<CG_NAME>_<CF_NAME>_ID
     TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
     StateChanges,                       //  StateChangeId -> StateChange

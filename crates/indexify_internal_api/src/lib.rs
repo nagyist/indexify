@@ -3,6 +3,7 @@ use std::{
     collections::{hash_map::DefaultHasher, BTreeMap, HashMap, HashSet},
     fmt::{self, Display},
     hash::{Hash, Hasher},
+    ptr::hash,
     str::FromStr,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -514,7 +515,10 @@ impl Display for Task {
 
 impl TaskBuilder {
     pub fn build(&self) -> Result<Task> {
-        let namespace = self.namespace.clone().ok_or(anyhow!("namespace is not present"))?;
+        let namespace = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace is not present"))?;
         let cg_name = self
             .compute_graph_name
             .clone()
@@ -1585,4 +1589,128 @@ pub struct ComputeGraph {
     pub tombstoned: bool,
     pub start_fn: ComputeFn,
     pub edges: HashMap<String, Vec<GraphEdge>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct DataObject {
+    pub id: String,
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub compute_fn_name: String,
+    pub payload_url: String,
+    pub payload_hash: String,
+}
+
+impl DataObject {
+    pub fn ingestion_object_key(&self) -> String {
+        let mut hasher = DefaultHasher::new();
+        self.namespace.hash(&mut hasher);
+        self.compute_graph_name.hash(&mut hasher);
+        self.payload_hash.hash(&mut hasher);
+        self.payload_url.hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+        format!("{}_{}_{}", self.namespace, self.compute_graph_name, id)
+    }
+
+    pub fn fn_output_key(&self, ingestion_object_id: &str) -> String {
+        let mut hasher = DefaultHasher::new();
+        self.namespace.hash(&mut hasher);
+        self.compute_graph_name.hash(&mut hasher);
+        self.compute_fn_name.hash(&mut hasher);
+        self.payload_hash.hash(&mut hasher);
+        self.payload_url.hash(&mut hasher);
+        ingestion_object_id.hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+        format!(
+            "{}_{}_{}_{}_{}",
+            self.namespace, self.compute_graph_name, ingestion_object_id, self.compute_fn_name, id
+        )
+    }
+}
+
+impl DataObjectBuilder {
+    pub fn build(&mut self) -> Result<DataObject> {
+        let ns = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace is required"))?;
+        let cg_name = self
+            .compute_graph_name
+            .clone()
+            .ok_or(anyhow!("compute_graph_name is required"))?;
+        let fn_name = self
+            .compute_fn_name
+            .clone()
+            .ok_or(anyhow!("compute_fn_name is required"))?;
+        let payload_hash = self
+            .payload_hash
+            .clone()
+            .ok_or(anyhow!("payload_hash is required"))?;
+        let payload_url = self
+            .payload_url
+            .clone()
+            .ok_or(anyhow!("payload_url is required"))?;
+        let mut hasher = DefaultHasher::new();
+        ns.hash(&mut hasher);
+        cg_name.hash(&mut hasher);
+        fn_name.hash(&mut hasher);
+        payload_hash.hash(&mut hasher);
+        payload_url.hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+        Ok(DataObject {
+            id,
+            namespace: ns,
+            compute_graph_name: cg_name,
+            compute_fn_name: fn_name,
+            payload_url,
+            payload_hash,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Builder)]
+#[builder(build_fn(skip))]
+pub struct GraphInvocationCtx {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub ingested_data_object_id: String,
+    pub id: String,
+}
+
+impl GraphInvocationCtx {
+    pub fn key(&self) -> String {
+        format!(
+            "{}_{}_{}_{}",
+            self.namespace, self.compute_graph_name, self.ingested_data_object_id, self.id
+        )
+    }
+}
+
+impl GraphInvocationCtxBuilder {
+    pub fn build(&mut self) -> Result<GraphInvocationCtx> {
+        let namespace = self
+            .namespace
+            .clone()
+            .ok_or(anyhow!("namespace is required"))?;
+        let cg_name = self
+            .compute_graph_name
+            .clone()
+            .ok_or(anyhow!("compute_graph_name is required"))?;
+        let ingested_data_object_id = self
+            .ingested_data_object_id
+            .clone()
+            .ok_or(anyhow!("ingested_data_object_id is required"))?;
+        let mut hasher = DefaultHasher::new();
+        namespace.hash(&mut hasher);
+        cg_name.hash(&mut hasher);
+        ingested_data_object_id.hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+        Ok(GraphInvocationCtx {
+            namespace,
+            compute_graph_name: cg_name,
+            ingested_data_object_id,
+            id,
+        })
+    }
 }

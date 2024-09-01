@@ -1,7 +1,10 @@
 use std::{collections::HashMap, time::SystemTime};
 
 use indexify_internal_api::{self as internal_api, GarbageCollectionTask};
-use internal_api::{ExecutorMetadata, ExtractionGraphLink, StateChange, StateChangeId};
+use internal_api::{
+    DataObject, ExecutorMetadata, ExtractionGraphLink, GraphInvocationCtx, StateChange,
+    StateChangeId,
+};
 use serde::{Deserialize, Serialize};
 
 use super::{ExecutorId, TaskId};
@@ -27,6 +30,15 @@ pub struct CreateOrUpdateContentEntry {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct InvokeComputeGraphRequest {
+    pub namespace: String,
+    pub graph_name: String,
+    pub data_object: DataObject,
+    pub invocation_ctx: GraphInvocationCtx,
+    pub created_time: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum RequestPayload {
     //  NOTE: This isn't strictly a state machine update. It's used to change cluster membership.
     JoinCluster {
@@ -34,6 +46,7 @@ pub enum RequestPayload {
         address: String,
         coordinator_addr: String,
     },
+    InvokeComputeGraph(InvokeComputeGraphRequest),
     RegisterExecutor(ExecutorMetadata),
     RemoveExecutor {
         executor_id: String,
@@ -53,11 +66,6 @@ pub enum RequestPayload {
     UpdateGarbageCollectionTask {
         gc_task: GarbageCollectionTask,
         mark_finished: bool,
-    },
-    AddGraphToContent {
-        content_ids: Vec<String>,
-        namespace: String,
-        extraction_graph: String,
     },
     CreateExtractionGraph {
         extraction_graph: internal_api::ExtractionGraph,

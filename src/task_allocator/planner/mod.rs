@@ -1,6 +1,7 @@
 pub mod load_aware_distributor;
 use std::collections::{HashMap, HashSet};
-use indexify_internal_api::{Task, ExecutorId, TaskId};
+
+use indexify_internal_api::{ExecutorId, Task, TaskId};
 
 #[derive(Debug, Clone)]
 pub struct TaskAllocationPlan(pub HashMap<TaskId, ExecutorId>);

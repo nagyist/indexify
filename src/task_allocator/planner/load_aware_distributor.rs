@@ -15,7 +15,7 @@ impl LoadAwareDistributor {
     }
 }
 
-// TODO 
+// TODO
 // Mantain an inmemory index of Executor Labels -> Executor ID
 // For every task, find the list of executors that mateches all the labels
 // From the list of potential executors, select the one with the lowest load
