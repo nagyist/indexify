@@ -1,14 +1,18 @@
 pub mod load_aware_distributor;
-pub mod plan;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use indexify_internal_api::{Task, ExecutorId, TaskId};
 
-use plan::TaskAllocationPlan;
+#[derive(Debug, Clone)]
+pub struct TaskAllocationPlan(pub HashMap<TaskId, ExecutorId>);
 
-use crate::state::store::TaskId;
+impl From<TaskAllocationPlan> for HashMap<TaskId, ExecutorId> {
+    fn from(plan: TaskAllocationPlan) -> Self {
+        plan.0
+    }
+}
 
 pub type AllocationPlannerResult = Result<TaskAllocationPlan, anyhow::Error>;
-
 #[async_trait::async_trait]
 pub trait AllocationPlanner {
-    async fn plan_allocations(&self, tasks: HashSet<TaskId>) -> AllocationPlannerResult;
+    async fn plan_allocations(&self, tasks: Vec<Task>) -> AllocationPlannerResult;
 }

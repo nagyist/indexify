@@ -10,7 +10,7 @@ use tracing::{error, info};
 
 use crate::{
     state::SharedState,
-    task_allocator::{planner::plan::TaskAllocationPlan, TaskAllocator},
+    task_allocator::{planner::TaskAllocationPlan, TaskAllocator},
     utils::timestamp_secs,
 };
 
@@ -107,14 +107,13 @@ impl Scheduler {
         &self,
         tasks: Vec<internal_api::Task>,
     ) -> Result<TaskAllocationPlan> {
-        let task_ids = tasks.iter().map(|task| task.id.clone()).collect();
         self.task_allocator
-            .allocate_tasks(task_ids)
+            .allocate_tasks(tasks)
             .await
             .map_err(|e| anyhow!("allocate_tasks: {}", e))
     }
 
-    pub async fn redistribute_tasks(&self, state_change: &StateChange) -> Result<()> {
+    pub async fn redistribute_tasks(&self, _state_change: &StateChange) -> Result<()> {
         // TODO: implement
         Ok(())
     }

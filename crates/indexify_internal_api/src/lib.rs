@@ -21,6 +21,8 @@ use utoipa::{schema, ToSchema};
 
 pub type ExtractionGraphId = String;
 pub type ExtractionGraphName = String;
+pub type ExecutorId = String;
+pub type TaskId = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Builder)]
 #[builder(build_fn(skip))]
