@@ -24,13 +24,6 @@ use crate::{
     blob_storage::{BlobStorage, BlobStorageWriter, PutResult, StoragePartWriter},
     coordinator_client::{CoordinatorClient, CoordinatorServiceClient},
     grpc_helper::GrpcHelper,
-    metadata_storage::{
-        query_engine::{run_query, StructuredDataRow},
-        ExtractedMetadata,
-        MetadataReaderTS,
-        MetadataStorageTS,
-    },
-    vector_index::{ScoredText, VectorIndexManager},
 };
 
 pub struct WriteStreamResult {
@@ -40,23 +33,7 @@ pub struct WriteStreamResult {
     pub file_name: String,
 }
 
-fn index_in_features(
-    output_index_map: &HashMap<String, String>,
-    features: &[api::Feature],
-    index_name: &str,
-) -> bool {
-    features.iter().any(|f| match f.feature_type {
-        api::FeatureType::Embedding => output_index_map
-            .get(&f.name)
-            .map_or(false, |index| index == index_name),
-        _ => false,
-    })
-}
-
 pub struct DataManager {
-    pub vector_index_manager: Arc<VectorIndexManager>,
-    pub metadata_index_manager: MetadataStorageTS,
-    metadata_reader: MetadataReaderTS,
     blob_storage: Arc<BlobStorage>,
     coordinator_client: Arc<CoordinatorClient>,
 }
@@ -69,16 +46,10 @@ impl fmt::Debug for DataManager {
 
 impl DataManager {
     pub fn new(
-        vector_index_manager: Arc<VectorIndexManager>,
-        metadata_index_manager: MetadataStorageTS,
-        metadata_reader: MetadataReaderTS,
         blob_storage: Arc<BlobStorage>,
         coordinator_client: Arc<CoordinatorClient>,
     ) -> Self {
         DataManager {
-            vector_index_manager,
-            metadata_index_manager,
-            metadata_reader,
             blob_storage,
             coordinator_client,
         }
@@ -244,43 +215,7 @@ impl DataManager {
             .create_extraction_graph(req)
             .await?
             .into_inner();
-        for (_, policy) in response.policies {
-            let extractor = response
-                .extractors
-                .get(policy.extractor.as_str())
-                .ok_or(anyhow!(format!(
-                    "extractor {} not found in response",
-                    policy.extractor
-                ),))?;
-            for (name, output_schema) in &extractor.embedding_schemas {
-                let embedding_schema: internal_api::EmbeddingSchema =
-                    serde_json::from_str(output_schema)?;
-                let table_name = policy.output_table_mapping.get(name).unwrap();
-                let _ = self
-                    .vector_index_manager
-                    .create_index(table_name, embedding_schema.clone())
-                    .await?;
-            }
-
-            // Create metadata table for the namespace if it doesn't exist
-            self.metadata_index_manager
-                .create_metadata_table(namespace)
-                .await?;
-        }
-        let req = indexify_coordinator::UpdateIndexesStateRequest {
-            indexes: response.indexes.clone(),
-        };
-        self.get_coordinator_client()
-            .await?
-            .update_indexes_state(req)
-            .await?;
-
-        let index_names = response
-            .indexes
-            .iter()
-            .map(|index| index.name.clone())
-            .collect();
-        Ok(index_names)
+        Ok(vec![])
     }
 
     // FIXME - Pass Namespace to this so that we don't let waiting on content that
@@ -389,134 +324,23 @@ impl DataManager {
             Ok(indexify_coordinator::GcTaskType::Delete) => self.delete_content(gc_task).await,
             Ok(indexify_coordinator::GcTaskType::DeleteBlobStore) => {
                 self.blob_storage.delete(&gc_task.blob_store_path).await?;
-                self.metadata_index_manager
-                    .remove_metadata(&gc_task.namespace, &gc_task.content_id)
-                    .await?;
                 Ok(())
             }
-            Ok(indexify_coordinator::GcTaskType::UpdateLabels) => {
-                self.update_index_labels(gc_task).await
-            }
-            Ok(indexify_coordinator::GcTaskType::DropIndexes) => self.drop_indexes(gc_task).await,
             _ => Ok(()),
         }
     }
 
-    async fn drop_indexes(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
-        for table in &gc_task.output_tables {
-            self.vector_index_manager.drop_index(table).await?;
-        }
-        Ok(())
-    }
-
-    #[tracing::instrument]
-    pub async fn update_index_labels(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
-        let metadata = self
-            .metadata_index_manager
-            .get_metadata_for_content(&gc_task.namespace, &gc_task.content_id)
-            .await?;
-        let content_metadata = self
-            .get_coordinator_client()
-            .await?
-            .get_content_metadata(indexify_coordinator::GetContentMetadataRequest {
-                content_list: vec![gc_task.content_id.clone()],
-            })
-            .await?
-            .into_inner()
-            .content_list
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow!("content not found"))?;
-        let content_metadata_labels =
-            internal_api::utils::convert_map_prost_to_serde_json(content_metadata.labels.clone())?;
-        let new_metadata = DataManager::combine_metadata(metadata, &[], content_metadata_labels);
-        for table in &gc_task.output_tables {
-            self.vector_index_manager
-                .update_metadata(table, gc_task.content_id.clone(), new_metadata.clone())
-                .await?;
-        }
-        Ok(())
-    }
 
     #[tracing::instrument]
     pub async fn delete_content(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
         //  Remove content from blob storage
         self.blob_storage.delete(&gc_task.blob_store_path).await?;
-
-        //  Remove features and embeddings from vector stores
-        for table in &gc_task.output_tables {
-            self.vector_index_manager
-                .remove_embedding(table, &gc_task.content_id)
-                .await?;
-        }
-
-        //  Remove any metadata
-        self.metadata_index_manager
-            .remove_metadata(&gc_task.namespace, &gc_task.content_id)
-            .await?;
-
         Ok(())
     }
 
     #[tracing::instrument]
     pub async fn delete_file(&self, path: &str) -> Result<()> {
         self.blob_storage.delete(path).await
-    }
-
-    pub async fn ingest_remote_file(
-        &self,
-        namespace: &str,
-        id: Option<String>,
-        file: &str,
-        mime: &str,
-        labels: HashMap<String, serde_json::Value>,
-        extraction_graph_names: &Vec<internal_api::ExtractionGraphName>,
-    ) -> Result<String> {
-        if !(["https://", "http://", "s3://", "file://"]
-            .iter()
-            .any(|s| file.starts_with(*s)))
-        {
-            return Err(anyhow!("invalid file path, must be a url, s3 or file path"));
-        }
-        let _ = mime::Mime::from_str(mime).map_err(|e| anyhow!("invalid mime type {}", e))?;
-        let current_ts_secs = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_secs();
-        let id = id.unwrap_or(nanoid!(16));
-
-        let labels_converted = internal_api::utils::convert_map_serde_to_prost_json(labels)?;
-        let content_metadata = indexify_coordinator::ContentMetadata {
-            id: id.clone(),
-            file_name: file.to_string(),
-            storage_url: file.to_string(),
-            parent_id: "".to_string(),
-            created_at: current_ts_secs as i64,
-            mime: mime.to_string(),
-            namespace: namespace.to_string(),
-            labels: labels_converted,
-            source: "".to_string(),
-            size_bytes: 0,
-            hash: "".to_string(),
-            extraction_policy_ids: HashMap::new(),
-            root_content_id: "".to_string(),
-            extraction_graph_names: extraction_graph_names.clone(),
-            extracted_metadata: "null".to_string(),
-        };
-        let req: indexify_coordinator::CreateContentRequest =
-            indexify_coordinator::CreateContentRequest {
-                content: Some(content_metadata),
-            };
-        self.get_coordinator_client()
-            .await?
-            .create_content(GrpcHelper::into_req(req))
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "unable to write content metadata to coordinator {}",
-                    e.to_string()
-                )
-            })?;
-        Ok(id)
     }
 
     pub async fn get_content_metadata(
@@ -590,25 +414,6 @@ impl DataManager {
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
         Ok(content_metadata)
-    }
-
-    pub async fn update_labels(
-        &self,
-        namespace: &str,
-        content_id: &str,
-        labels: HashMap<String, serde_json::Value>,
-    ) -> Result<()> {
-        let prost_labels = internal_api::utils::convert_map_serde_to_prost_json(labels)?;
-        let req = indexify_coordinator::UpdateLabelsRequest {
-            content_id: content_id.to_string(),
-            namespace: namespace.to_string(),
-            labels: prost_labels,
-        };
-        self.get_coordinator_client()
-            .await?
-            .update_labels(req)
-            .await?;
-        Ok(())
     }
 
     pub async fn create_content_metadata(
@@ -737,289 +542,6 @@ impl DataManager {
             error!("unable to update task: {}", err.to_string());
         }
         Ok(())
-    }
-
-    pub async fn write_extracted_embedding(
-        &self,
-        name: &str,
-        embedding: &[f32],
-        content_id: &str,
-        output_index_map: &HashMap<String, String>,
-        metadata: HashMap<String, serde_json::Value>,
-        root_content_metadata: Option<internal_api::ContentMetadata>,
-        content_metadata: internal_api::ContentMetadata,
-    ) -> Result<()> {
-        let embeddings = internal_api::ExtractedEmbeddings {
-            content_id: content_id.to_string(),
-            embedding: embedding.to_vec(),
-            metadata,
-            root_content_metadata,
-            content_metadata,
-        };
-        let index_table = output_index_map
-            .get(name)
-            .ok_or(anyhow!("index table not {} found", name))?;
-        self.vector_index_manager
-            .add_embedding(index_table, vec![embeddings])
-            .await
-            .map_err(|e| anyhow!("unable to add embedding to vector index {}", e))?;
-        Ok(())
-    }
-
-    // Combine metadata from existing metadata and new features into single json
-    // object
-    fn combine_metadata(
-        metadata: Vec<ExtractedMetadata>,
-        features: &[api::Feature],
-        labels: HashMap<String, serde_json::Value>,
-    ) -> HashMap<String, serde_json::Value> {
-        let mut combined_metadata = HashMap::new();
-        for m in metadata {
-            for (k, v) in m.metadata.as_object().unwrap() {
-                combined_metadata.insert(k.clone(), v.clone());
-            }
-        }
-        for feature in features {
-            if let api::FeatureType::Metadata = feature.feature_type {
-                if let serde_json::Value::Object(data) = &feature.data {
-                    for (k, v) in data {
-                        combined_metadata.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-        }
-        for (k, v) in labels {
-            combined_metadata.insert(k, v);
-        }
-        combined_metadata
-    }
-
-    pub async fn write_existing_content_features(
-        &self,
-        extractor: &str,
-        extraction_graph_name: &str,
-        content_metadata: &indexify_coordinator::ContentMetadata,
-        root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
-        features: Vec<api::Feature>,
-        output_index_mapping: &HashMap<String, String>,
-        index_tables: &[String],
-    ) -> Result<()> {
-        let metadata_updated = features
-            .iter()
-            .any(|feature| matches!(feature.feature_type, api::FeatureType::Metadata));
-        let existing_metadata = self
-            .metadata_index_manager
-            .get_metadata_for_content(&content_metadata.namespace, &content_metadata.id)
-            .await?;
-        let content_metadata_labels =
-            internal_api::utils::convert_map_prost_to_serde_json(content_metadata.labels.clone())?;
-        let new_metadata =
-            Self::combine_metadata(existing_metadata, &features, content_metadata_labels);
-        self.write_extracted_features(
-            extractor,
-            extraction_graph_name,
-            content_metadata.clone(),
-            root_content_metadata,
-            features.clone(),
-            new_metadata.clone(),
-            output_index_mapping,
-        )
-        .await?;
-        if metadata_updated && !new_metadata.is_empty() {
-            // For all embeddings not updated with new values, update their metadata
-            for index in index_tables {
-                if !index_in_features(output_index_mapping, &features, index) {
-                    info!(
-                        "updating metadata for content {} index {}",
-                        content_metadata.id.clone(),
-                        index
-                    );
-                    self.vector_index_manager
-                        .update_metadata(index, content_metadata.id.clone(), new_metadata.clone())
-                        .await?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub async fn write_extracted_features(
-        &self,
-        extractor: &str,
-        extraction_graph_name: &str,
-        content_metadata: indexify_coordinator::ContentMetadata,
-        root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
-        features: Vec<api::Feature>,
-        metadata: HashMap<String, serde_json::Value>,
-        output_index_map: &HashMap<String, String>,
-    ) -> Result<()> {
-        let content_metadata: internal_api::ContentMetadata = content_metadata.try_into()?;
-        for feature in &features {
-            match feature.feature_type {
-                api::FeatureType::Embedding => {
-                    let embedding_payload: internal_api::Embedding =
-                        serde_json::from_value(feature.data.clone()).map_err(|e| {
-                            anyhow!("unable to get embedding from extracted data {}", e)
-                        })?;
-                    self.write_extracted_embedding(
-                        &feature.name,
-                        &embedding_payload.values,
-                        &content_metadata.id.id,
-                        output_index_map,
-                        metadata.clone(),
-                        root_content_metadata.clone(),
-                        content_metadata.clone(),
-                    )
-                    .await?;
-                }
-                api::FeatureType::Metadata => {
-                    let extracted_attributes = ExtractedMetadata::new(
-                        &content_metadata.id.id,
-                        &content_metadata
-                            .parent_id
-                            .clone()
-                            .map(|id| id.id)
-                            .unwrap_or_default(),
-                        &content_metadata.source.to_string(),
-                        feature.data.clone(),
-                        extractor,
-                        extraction_graph_name,
-                    );
-                    self.metadata_index_manager
-                        .add_metadata(&content_metadata.namespace, extracted_attributes)
-                        .await?;
-                }
-                _ => {
-                    error!("unsupported feature type: {:?}", feature.feature_type);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub async fn create_content_and_write_features(
-        &self,
-        content_metadata: &indexify_coordinator::ContentMetadata,
-        root_content_metadata: Option<indexify_internal_api::ContentMetadata>,
-        extractor: &str,
-        extraction_graph_name: &str,
-        features: Vec<api::Feature>,
-        output_index_map: &HashMap<String, String>,
-    ) -> Result<()> {
-        let req = indexify_coordinator::CreateContentRequest {
-            content: Some(content_metadata.clone()),
-        };
-        let res = self
-            .get_coordinator_client()
-            .await?
-            .create_content(GrpcHelper::into_req(req))
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "unable to write content metadata to coordinator {}",
-                    e.to_string()
-                )
-            })?
-            .into_inner();
-        if res.status() == CreateContentStatus::Duplicate {
-            if let Err(e) = self.delete_file(&content_metadata.storage_url).await {
-                tracing::warn!(
-                    "unable to delete duplicate file for {:?}: {}",
-                    content_metadata.id,
-                    e
-                );
-            }
-            return Ok(());
-        }
-        let content_metadata_labels =
-            internal_api::utils::convert_map_prost_to_serde_json(content_metadata.labels.clone())?;
-        let metadata = Self::combine_metadata(Vec::new(), &features, content_metadata_labels);
-        self.write_extracted_features(
-            extractor,
-            extraction_graph_name,
-            content_metadata.clone(),
-            root_content_metadata,
-            features,
-            metadata,
-            output_index_map,
-        )
-        .await
-    }
-
-    pub async fn query_content_source(
-        &self,
-        namespace: &str,
-        query: &str,
-    ) -> Result<Vec<StructuredDataRow>> {
-        let schemas = self
-            .coordinator_client
-            .get_structured_schemas(namespace)
-            .await?;
-        let metadata_reader = self.metadata_reader.clone();
-        let namespace = namespace.to_string();
-        let query = query.to_string();
-        tokio::task::spawn_blocking(move || {
-            futures::executor::block_on(async move {
-                run_query(query, metadata_reader, schemas, namespace).await
-            })
-        })
-        .await?
-    }
-
-    #[tracing::instrument]
-    pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<api::Index>> {
-        let req = indexify_coordinator::ListIndexesRequest {
-            namespace: namespace.to_string(),
-        };
-        let resp = self
-            .get_coordinator_client()
-            .await?
-            .list_indexes(req)
-            .await?;
-        let mut api_indexes = Vec::new();
-        for index in resp.into_inner().indexes {
-            let api_index = index.try_into()?;
-            api_indexes.push(api_index);
-        }
-        Ok(api_indexes)
-    }
-
-    #[tracing::instrument]
-    pub async fn search(
-        &self,
-        namespace: &str,
-        index_name: &str,
-        query: &str,
-        k: u64,
-        filter: LabelsFilter,
-        include_content: bool,
-    ) -> Result<Vec<ScoredText>> {
-        let req = indexify_coordinator::GetIndexRequest {
-            namespace: namespace.to_string(),
-            name: index_name.to_string(),
-        };
-        let index = self
-            .get_coordinator_client()
-            .await?
-            .get_index(req)
-            .await?
-            .into_inner()
-            .index
-            .ok_or(anyhow!("Index not found"))?;
-        self.vector_index_manager
-            .search(index, query, k as usize, filter, include_content)
-            .await
-    }
-
-    #[tracing::instrument]
-    pub async fn metadata_lookup(
-        &self,
-        namespace: &str,
-        content_id: &str,
-    ) -> Result<Vec<ExtractedMetadata>, anyhow::Error> {
-        self.metadata_index_manager
-            .get_metadata_for_content(namespace, content_id)
-            .await
     }
 
     #[tracing::instrument]

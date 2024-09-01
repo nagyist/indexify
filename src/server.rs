@@ -56,16 +56,11 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::{
     api::*,
     blob_storage::{BlobStorage, ContentReader},
-    caching::caches_extension::Caches,
     coordinator_client::CoordinatorClient,
     data_manager::DataManager,
-    ingest_extracted_content::IngestExtractedContentState,
-    metadata_storage::{self, MetadataReaderTS, MetadataStorageTS},
     metrics,
     server_config::ServerConfig,
     tls::build_mtls_config,
-    vector_index::VectorIndexManager,
-    vectordbs,
 };
 
 const DEFAULT_SEARCH_LIMIT: u64 = 5;
@@ -84,7 +79,6 @@ pub struct NamespaceEndpointState {
         paths(
             create_namespace,
             list_namespaces,
-            list_indexes,
             list_extractors,
             list_executors,
             list_content,
@@ -99,10 +93,8 @@ pub struct NamespaceEndpointState {
             link_extraction_graphs,
             extraction_graph_links,
             upload_file,
-            ingest_remote_file,
             add_graph_to_content,
             list_tasks,
-            index_search,
             get_content_tree_metadata,
             download_content,
             extraction_graph_analytics,
@@ -152,23 +144,11 @@ impl Server {
             }
             false => info!("starting indexify server with TLS disabled"),
         }
-        let vector_db = vectordbs::create_vectordb(self.config.index_config.clone()).await?;
         let coordinator_client = Arc::new(CoordinatorClient::new(Arc::clone(&self.config)));
-        let vector_index_manager = Arc::new(
-            VectorIndexManager::new(coordinator_client.clone(), vector_db.clone())
-                .map_err(|e| anyhow!("unable to create vector index {}", e))?,
-        );
-        let metadata_index_manager: MetadataStorageTS =
-            metadata_storage::from_config(&self.config.metadata_storage)?;
-        let metadata_reader: MetadataReaderTS =
-            metadata_storage::from_config_reader(&self.config.metadata_storage)?;
         let blob_storage = Arc::new(BlobStorage::new_with_config(
             self.config.blob_storage.clone(),
         ));
         let data_manager = Arc::new(DataManager::new(
-            vector_index_manager,
-            metadata_index_manager,
-            metadata_reader,
             blob_storage.clone(),
             coordinator_client.clone(),
         ));
@@ -187,7 +167,6 @@ impl Server {
             registry,
             metrics: Arc::new(crate::metrics::server::Metrics::new()),
         };
-        let caches = Caches::new(self.config.cache.clone());
         let cors = CorsLayer::new()
             .allow_methods([Method::GET, Method::POST])
             .allow_origin(Any)
@@ -221,10 +200,6 @@ impl Server {
                 delete(delete_extraction_graph).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/extraction_graphs/:extraction_graph/extract_remote",
-                post(ingest_remote_file).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
                 "/namespaces/:namespace/extraction_graphs/:extraction_graph/content",
                 get(list_content).with_state(namespace_endpoint_state.clone()),
             )
@@ -256,17 +231,6 @@ impl Server {
                 "/namespaces/:namespace/extraction_graphs/:graph/links",
                 get(extraction_graph_links).with_state(namespace_endpoint_state.clone()),
             )
-            .route("/namespaces/:namespace/sql_query",
-                post(run_sql_query).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/indexes",
-                get(list_indexes).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/indexes/:index/search",
-                post(index_search).with_state(namespace_endpoint_state.clone()),
-            )
             .route(
                 "/namespaces/:namespace/active_content",
                 get(active_content).with_state(namespace_endpoint_state.clone()),
@@ -274,14 +238,6 @@ impl Server {
             .route(
                 "/namespaces/:namespace/content/:content_id/metadata",
                 get(get_content_metadata).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/content/:content_id/labels",
-                put(update_labels).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/namespaces/:namespace/content/:content_id/wait",
-                get(wait_content_extraction).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/namespaces/:namespace/content/:content_id",
@@ -294,10 +250,6 @@ impl Server {
                 delete(delete_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
-                "/namespaces/:namespace/schemas",
-                get(list_schemas).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
                 "/namespaces",
                 post(create_namespace).with_state(namespace_endpoint_state.clone()),
             )
@@ -308,10 +260,6 @@ impl Server {
             .route(
                 "/executors",
                 get(list_executors).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/write_content",
-                get(ingest_extracted_content).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/extractors",
@@ -337,7 +285,6 @@ impl Server {
             .route("/ui/*rest", get(ui_handler))
             .layer(OtelAxumLayer::default())
             .layer(metrics)
-            .layer(Extension(caches))
             .layer(cors)
             .layer(DefaultBodyLimit::disable())
             .layer(tower_http::trace::TraceLayer::new_for_http());
@@ -739,66 +686,6 @@ async fn extraction_graph_links(
     Ok(Json(res))
 }
 
-/// Ingest a file by it's URL
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/extraction_graphs/{extraction_graph}/extract_remote",
-    tag = "ingestion",
-    responses(
-        (status = 200, description = "Ingested a remote file successfully", body = IngestRemoteFileResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to ingest remote file")
-    ),
-)]
-#[axum::debug_handler]
-async fn ingest_remote_file(
-    Path((namespace, extraction_graph)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    Json(payload): Json<IngestRemoteFile>,
-) -> Result<Json<IngestRemoteFileResponse>, IndexifyAPIError> {
-    let content_id = state
-        .data_manager
-        .ingest_remote_file(
-            &namespace,
-            payload.id,
-            &payload.url,
-            &payload.mime_type,
-            payload.labels,
-            &vec![extraction_graph],
-        )
-        .await
-        .map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::BAD_REQUEST,
-                &format!("failed to add text: {}", e),
-            )
-        })?;
-    Ok(Json(IngestRemoteFileResponse { content_id }))
-}
-
-#[tracing::instrument]
-#[utoipa::path(
-    put,
-    path = "/namespaces/{namespace}/content/{content_id}/labels",
-    request_body = UpdateLabelsRequest,
-    tag = "indexify",
-    responses(
-        (status = 200, description = "Labels updated successfully"),
-        (status = BAD_REQUEST, description = "Unable to update labels")
-    ),
-)]
-#[axum::debug_handler]
-async fn update_labels(
-    Path((namespace, content_id)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    Json(body): Json<UpdateLabelsRequest>,
-) -> Result<(), IndexifyAPIError> {
-    state
-        .data_manager
-        .update_labels(&namespace, &content_id, body.labels)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-    Ok(())
-}
 
 /// List all the content ingested into an extraction graph
 #[tracing::instrument]
@@ -1405,13 +1292,6 @@ async fn update_content(
     Ok(())
 }
 
-async fn ingest_extracted_content(
-    ws: WebSocketUpgrade<IngestExtractedContentResponse, IngestExtractedContent>,
-    State(state): State<NamespaceEndpointState>,
-) -> impl IntoResponse {
-    ws.on_upgrade(|socket| IngestExtractedContentState::new(state).run(socket))
-}
-
 async fn get_new_content_stream(
     state: &NamespaceEndpointState,
     namespace: String,
@@ -1688,155 +1568,6 @@ async fn list_task_assignments(
     Ok(Json(response))
 }
 
-/// List all the indexes in a given namespace
-#[tracing::instrument]
-#[utoipa::path(
-    get,
-    path = "/namespaces/{namespace}/indexes",
-    tag = "retrieval",
-    responses(
-        (status = 200, description = "List of indexes in a namespace", body = ListIndexesResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to list indexes in namespace")
-    ),
-)]
-#[axum::debug_handler]
-async fn list_indexes(
-    Path(namespace): Path<String>,
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<ListIndexesResponse>, IndexifyAPIError> {
-    let indexes = state
-        .data_manager
-        .list_indexes(&namespace)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?
-        .into_iter()
-        .collect();
-    Ok(Json(ListIndexesResponse { indexes }))
-}
-
-/// Search a vector index in a namespace
-#[utoipa::path(
-    post,
-    path = "/namespaces/{namespace}/indexes/{index}/search",
-    tag = "retrieval",
-    responses(
-        (status = 200, description = "Index search results", body = IndexSearchResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
-    ),
-)]
-#[axum::debug_handler]
-async fn index_search(
-    Path((namespace, index)): Path<(String, String)>,
-    State(state): State<NamespaceEndpointState>,
-    Json(query): Json<SearchRequest>,
-) -> Result<Json<IndexSearchResponse>, IndexifyAPIError> {
-    let results = state
-        .data_manager
-        .search(
-            &namespace,
-            &index,
-            &query.query,
-            query.k.unwrap_or(DEFAULT_SEARCH_LIMIT),
-            query.filters,
-            query.include_content.unwrap_or(true),
-        )
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-    let document_fragments: Vec<DocumentFragment> = results
-        .iter()
-        .map(|text| DocumentFragment {
-            content_id: text.content_id.clone(),
-            mime_type: text.mime_type.clone(),
-            text: text.text.clone(),
-            labels: text.labels.clone(),
-            confidence_score: text.confidence_score,
-            root_content_metadata: text.root_content_metadata.clone().map(|r| r.into()),
-            content_metadata: text.content_metadata.clone().into(),
-        })
-        .collect();
-    Ok(Json(IndexSearchResponse {
-        results: document_fragments,
-    }))
-}
-
-#[axum::debug_handler]
-async fn run_sql_query(
-    Path(namespace): Path<String>,
-    State(state): State<NamespaceEndpointState>,
-    Json(query): Json<SQLQuery>,
-) -> Result<Json<SqlQueryResponse>, IndexifyAPIError> {
-    let results = state
-        .data_manager
-        .query_content_source(&namespace, &query.query)
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-
-    let mut json_result = Vec::new();
-    for result in results {
-        let result_value = serde_json::to_value(&result).map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to serialize result {:?}: error: {}", result, e),
-            )
-        })?;
-        json_result.push(result_value);
-    }
-    Ok(Json(SqlQueryResponse { rows: json_result }))
-}
-
-#[utoipa::path(
-    post,
-    path = "/namespace/{namespace}/schemas",
-    tag = "indexify",
-    responses(
-        (status = 200, description = "List of Schemas", body = GetStructuredDataSchemasResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "List Structured Data Schemas")
-    ),
-)]
-#[axum::debug_handler]
-async fn list_schemas(
-    Path(namespace): Path<String>,
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<GetStructuredDataSchemasResponse>, IndexifyAPIError> {
-    let results = state
-        .coordinator_client
-        .get()
-        .await
-        .map_err(IndexifyAPIError::internal_error)?
-        .list_schemas(tonic::Request::new(
-            indexify_coordinator::GetAllSchemaRequest {
-                namespace: namespace.clone(),
-            },
-        ))
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?;
-    let results = results.into_inner().schemas;
-    let mut ddls = HashMap::new();
-    let mut schemas = Vec::new();
-    for schema in results {
-        let columns = serde_json::from_str(&schema.columns).map_err(|e| {
-            IndexifyAPIError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("failed to parse schema columns: {} {}", schema.columns, e),
-            )
-        })?;
-
-        let schema = internal_api::StructuredDataSchema {
-            id: internal_api::StructuredDataSchema::schema_id(
-                &namespace,
-                &schema.extraction_graph_name,
-            ),
-            extraction_graph_name: schema.extraction_graph_name,
-            namespace: namespace.clone(),
-            columns,
-        };
-
-        ddls.insert(schema.extraction_graph_name.to_string(), schema.to_ddl());
-        schemas.push(schema);
-    }
-
-    Ok(Json(GetStructuredDataSchemasResponse { schemas, ddls }))
-}
 
 #[axum::debug_handler]
 #[tracing::instrument]

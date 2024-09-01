@@ -13,7 +13,7 @@ use serde_with::{serde_as, BytesOrString};
 use strum::{Display, EnumString};
 use utoipa::{openapi, IntoParams, ToSchema};
 
-use crate::{api_utils, metadata_storage, vectordbs};
+use crate::api_utils;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExtractionGraphLink {
@@ -135,26 +135,6 @@ pub enum IndexDistance {
     #[serde(rename = "euclidean")]
     #[strum(serialize = "euclidean")]
     Euclidean,
-}
-
-impl From<IndexDistance> for vectordbs::IndexDistance {
-    fn from(value: IndexDistance) -> Self {
-        match value {
-            IndexDistance::Dot => vectordbs::IndexDistance::Dot,
-            IndexDistance::Cosine => vectordbs::IndexDistance::Cosine,
-            IndexDistance::Euclidean => vectordbs::IndexDistance::Euclidean,
-        }
-    }
-}
-
-impl From<vectordbs::IndexDistance> for IndexDistance {
-    fn from(val: vectordbs::IndexDistance) -> Self {
-        match val {
-            vectordbs::IndexDistance::Dot => IndexDistance::Dot,
-            vectordbs::IndexDistance::Cosine => IndexDistance::Cosine,
-            vectordbs::IndexDistance::Euclidean => IndexDistance::Euclidean,
-        }
-    }
 }
 
 fn filter_schema() -> openapi::Array {
@@ -332,17 +312,6 @@ pub struct ExtractedMetadata {
     pub content_id: String,
     pub metadata: serde_json::Value,
     pub extractor_name: String,
-}
-
-impl From<metadata_storage::ExtractedMetadata> for ExtractedMetadata {
-    fn from(value: metadata_storage::ExtractedMetadata) -> Self {
-        Self {
-            id: value.id,
-            content_id: value.content_id,
-            metadata: value.metadata,
-            extractor_name: value.extractor_name,
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

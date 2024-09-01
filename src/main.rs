@@ -23,7 +23,6 @@ pub mod task_allocator;
 mod api;
 mod api_utils;
 mod blob_storage;
-mod caching;
 mod cmd;
 mod coordinator;
 mod coordinator_client;
@@ -32,15 +31,11 @@ mod extractor_router;
 mod forwardable_coordinator;
 mod garbage_collector;
 mod grpc_helper;
-mod ingest_extracted_content;
-mod metadata_storage;
 mod scheduler;
 mod test_util;
 mod tls;
 mod tonic_streamer;
 mod utils;
-mod vector_index;
-mod vectordbs;
 
 //  test modules
 #[cfg(test)]
