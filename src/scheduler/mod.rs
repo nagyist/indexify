@@ -1,13 +1,6 @@
-use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-    time::SystemTime,
-};
-
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
 use indexify_internal_api::{
     self as internal_api,
-    ExtractionPolicy,
     InvokeComputeGraphPayload,
     StateChange,
     TaskBuilder,
@@ -72,17 +65,18 @@ impl Scheduler {
     }
 
     pub async fn handle_executor_removed(&self, state_change: StateChange) -> Result<()> {
+        // This works because when an executor is removed, all its tasks are unassigned.
         let tasks = self.shared_state.unassigned_tasks().await?;
         let plan = self.allocate_tasks(tasks).await?.0;
         if !plan.is_empty() {
-            self.shared_state
+            return self.shared_state
                 .commit_task_assignments(plan, state_change.id)
-                .await
-        } else {
-            self.shared_state
-                .mark_change_events_as_processed(vec![state_change], Vec::new())
-                .await
+                .await;
         }
+
+        self.shared_state
+            .mark_change_events_as_processed(vec![state_change], Vec::new())
+            .await
     }
 
     pub async fn invoke_compute_graph(&self, payload: &InvokeComputeGraphPayload, state_change_id: StateChangeId) -> Result<()> {
@@ -121,91 +115,7 @@ impl Scheduler {
     }
 
     pub async fn redistribute_tasks(&self, state_change: &StateChange) -> Result<()> {
-        let executor = self
-            .shared_state
-            .get_executor_by_id(&state_change.object_id)
-            .await;
-        if let Err(err) = &executor {
-            error!("unable to redistribute tasks: {}", err);
-            return Ok(());
-        }
-        let executor = executor.map_err(|e| anyhow!("error redistribution_tasks: {}", e))?;
-
-        // Get all extractor names own by the executor
-        let extractor_names = executor
-            .extractors
-            .iter()
-            .map(|extractor| extractor.name.clone())
-            .collect::<Vec<String>>();
-
-        // This HashMap is used to aggregate the task re-allocation
-        // plan for each extractor in the executor.
-        let mut task_allocation_plan = HashMap::new();
-
-        for extractor_name in extractor_names {
-            let plan = self
-                .task_allocator
-                .reallocate_all_tasks_matching_extractor(&extractor_name)
-                .await
-                .map_err(|e| anyhow!("redistribute_tasks: {}", e))?;
-
-            // Transfer the task id and executor id from the plan to the
-            // aggregated task allocation plan.
-            for (task_id, executor_id) in plan.0 {
-                task_allocation_plan.insert(task_id, executor_id);
-            }
-        }
-
-        if !task_allocation_plan.is_empty() {
-            self.shared_state
-                .commit_task_assignments(task_allocation_plan, state_change.id)
-                .await
-        } else {
-            self.shared_state
-                .mark_change_events_as_processed(vec![state_change.clone()], Vec::new())
-                .await
-        }
-    }
-
-    pub async fn create_task(
-        &self,
-        extraction_policy: &ExtractionPolicy,
-        content: &internal_api::ContentMetadata,
-        index_tables: &[String],
-    ) -> Result<internal_api::Task> {
-        let extractor = self
-            .shared_state
-            .extractor_with_name(&extraction_policy.extractor)?;
-
-        let mut output_mapping: HashMap<String, String> = HashMap::new();
-        for name in extractor.outputs.keys() {
-            if let Some(table_name) = extraction_policy.output_table_mapping.get(name) {
-                output_mapping.insert(name.clone(), table_name.clone());
-            }
-        }
-
-        let mut hasher = DefaultHasher::new();
-        extraction_policy.name.hash(&mut hasher);
-        extraction_policy.namespace.hash(&mut hasher);
-        content.id.hash(&mut hasher);
-        let id = format!("{:x}", hasher.finish());
-        let task = internal_api::Task {
-            id,
-            compute_graph_name: "".to_string(),
-            compute_fn_name: "".to_string(),
-            input_data_object_id: content.id.to_string(),
-            extractor: extraction_policy.extractor.clone(),
-            extraction_graph_name: extraction_policy.graph_name.clone(),
-            extraction_policy_name: extraction_policy.name.clone(),
-            output_index_table_mapping: output_mapping.clone(),
-            namespace: extraction_policy.namespace.clone(),
-            content_metadata: content.clone(),
-            input_params: extraction_policy.input_params.clone(),
-            outcome: internal_api::TaskOutcome::Unknown,
-            index_tables: index_tables.to_vec(),
-            creation_time: SystemTime::now(),
-        };
-        info!("created task: {:?}", task);
-        Ok(task)
+        // TODO: implement
+        Ok(())
     }
 }
