@@ -228,46 +228,6 @@ impl DataManager {
         response.into_inner().try_into()
     }
 
-    #[tracing::instrument(skip(self, content_list))]
-    pub async fn add_texts(
-        &self,
-        namespace: &str,
-        content_list: Vec<api::ContentWithId>,
-        extraction_graph_names: Vec<internal_api::ExtractionGraphName>,
-    ) -> Result<()> {
-        for content_with_id in content_list {
-            let text = content_with_id.content;
-            let stream = futures::stream::once(async { Ok(Bytes::from(text.bytes)) });
-            let content_metadata = self
-                .write_content_bytes(
-                    namespace,
-                    Box::pin(stream),
-                    text.labels,
-                    text.content_type,
-                    None,
-                    "",
-                    Some(&content_with_id.id),
-                    &extraction_graph_names,
-                )
-                .await?;
-
-            let req = indexify_coordinator::CreateContentRequest {
-                content: Some(content_metadata),
-            };
-            self.get_coordinator_client()
-                .await?
-                .create_content(GrpcHelper::into_req(req))
-                .await
-                .map_err(|e| {
-                    anyhow!(
-                        "unable to write content metadata to coordinator {}",
-                        e.to_string()
-                    )
-                })?;
-        }
-        Ok(())
-    }
-
     pub async fn perform_gc_task(&self, gc_task: &indexify_coordinator::GcTask) -> Result<()> {
         match gc_task.task_type.try_into() {
             Ok(indexify_coordinator::GcTaskType::Delete) => self.delete_content(gc_task).await,
@@ -362,26 +322,6 @@ impl DataManager {
             .await
             .map_err(|e| anyhow!("unable to write content to blob store: {}", e))?;
         Ok(content_metadata)
-    }
-
-    pub async fn create_content_metadata(
-        &self,
-        content_metadata: indexify_coordinator::ContentMetadata,
-    ) -> Result<()> {
-        let req = indexify_coordinator::CreateContentRequest {
-            content: Some(content_metadata),
-        };
-        self.get_coordinator_client()
-            .await?
-            .create_content(GrpcHelper::into_req(req))
-            .await
-            .map_err(|e| {
-                anyhow!(
-                    "unable to write content metadata to coordinator {}",
-                    e.to_string()
-                )
-            })?;
-        Ok(())
     }
 
     pub fn make_file_name(file_name: Option<&str>) -> String {

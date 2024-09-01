@@ -884,16 +884,6 @@ async fn upload_file_inner(
             extraction_graph_names: vec![extraction_graph],
             extracted_metadata: json!({}).to_string(),
         };
-        state
-            .data_manager
-            .create_content_metadata(content_metadata)
-            .await
-            .map_err(|e| {
-                IndexifyAPIError::new(
-                    StatusCode::BAD_REQUEST,
-                    &format!("failed to create content for file: {}", e),
-                )
-            })?;
         state.metrics.node_content_uploads.add(1, &[]);
         state
             .metrics

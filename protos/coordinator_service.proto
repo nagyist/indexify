@@ -5,8 +5,6 @@ import "google/protobuf/struct.proto";
 package indexify_coordinator;
 
 service CoordinatorService {
-    rpc CreateContent(CreateContentRequest) returns (CreateContentResponse) {}
-
     rpc GetContentMetadata(GetContentMetadataRequest) returns (GetContentMetadataResponse) {}
 
     rpc GetContentTreeMetadata(GetContentTreeMetadataRequest) returns (GetContentTreeMetadataResponse) {}

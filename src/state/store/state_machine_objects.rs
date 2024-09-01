@@ -31,7 +31,7 @@ use internal_api::{
 };
 use itertools::Itertools;
 use opentelemetry::metrics::AsyncInstrument;
-use rocksdb::{IteratorMode, OptimisticTransactionDB, Transaction};
+use rocksdb::{IteratorMode, OptimisticTransactionDB, ReadOptions, Transaction, Direction};
 use serde::de::DeserializeOwned;
 use tokio::sync::broadcast;
 use tracing::warn;
@@ -43,6 +43,8 @@ use super::{
         RequestPayload,
         StateChangeProcessed,
         StateMachineUpdateRequest,
+        DeleteComputeGraphRequest,
+        TombstoneIngestedDataObjectRequest,
     },
     serializer::JsonEncode,
     ExecutorId,
@@ -1214,6 +1216,37 @@ impl IndexifyState {
         })?;
         Ok(())
     }
+    
+    fn tombstone_ingested_data_object(
+        &self,
+        db: &OptimisticTransactionDB,
+        txn: &Transaction<OptimisticTransactionDB>,
+        request: &TombstoneIngestedDataObjectRequest,
+    ) -> Result<(), StateMachineError> {
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+        let ingested_object_key_prefix= format!("{}_{}_", request.namespace, request.compute_graph_name);
+        let fn_output_key_prefix = format!("{}_{}_{}", request.namespace, request.compute_graph_name, request.id);
+        let mode = IteratorMode::From(ingested_object_key_prefix.as_bytes(), Direction::Forward);
+        let itr = db.iterator_cf_opt(StateMachineColumns::IngestedDataObjects.cf(db), read_options, mode);
+        for kv in itr {
+            let (key, _) = kv.map_err(|e| StateMachineError::DatabaseError(format!("Error reading ingested data object: {}", e)))?;
+            let key = String::from_utf8(key.to_vec()).map_err(|e| StateMachineError::DatabaseError(format!("Error reading ingested data object: {}", e)))?;
+            txn.delete_cf(StateMachineColumns::IngestedDataObjects.cf(db), key)
+                .map_err(|e| StateMachineError::DatabaseError(format!("Error deleting ingested data object: {}", e)))?;
+        }
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+        let mode = IteratorMode::From(fn_output_key_prefix.as_bytes(), Direction::Forward);
+        let itr = db.iterator_cf_opt(StateMachineColumns::DataObjects.cf(db), read_options, mode);
+        for kv in itr {
+            let (key, _) = kv.map_err(|e| StateMachineError::DatabaseError(format!("Error reading ingested data object: {}", e)))?;
+            let key = String::from_utf8(key.to_vec()).map_err(|e| StateMachineError::DatabaseError(format!("Error reading ingested data object: {}", e)))?;
+            txn.delete_cf(StateMachineColumns::IngestedDataObjects.cf(db), key)
+                .map_err(|e| StateMachineError::DatabaseError(format!("Error deleting ingested data object: {}", e)))?;
+        }
+        Ok(())
+    }
 
     fn set_namespace(
         &self,
@@ -1341,18 +1374,11 @@ impl IndexifyState {
             self.set_processed_state_changes(db, &txn, &request.state_changes_processed)?;
 
         match &request.payload {
-            RequestPayload::DeleteExtractionGraph { graph_id, gc_task } => {
-                self.set_garbage_collection_tasks(db, &txn, &[gc_task])?;
-                self.delete_extraction_graph_by_id(db, &txn, graph_id)?;
-            }
             RequestPayload::InvokeComputeGraph(invoke_compute_graph_request) => {
                 self.invoke_compute_graph(db, &txn, invoke_compute_graph_request)?;
             }
-            RequestPayload::DeleteExtractionGraphByName {
-                extraction_graph,
-                namespace,
-            } => {
-                self.delete_extraction_graph_by_name(db, &txn, extraction_graph, namespace)?;
+            RequestPayload::DeleteComputeGraph(request) => {
+                self.delete_compute_graph(db, &txn, request)?;
             }
             RequestPayload::CreateTasks { tasks } => {
                 self.update_tasks(db, &txn, tasks.clone(), SystemTime::UNIX_EPOCH)?;
@@ -1415,20 +1441,8 @@ impl IndexifyState {
                 self.delete_executor(db, &txn, executor_id)?;
                 self.delete_task_assignments_for_executor(db, &txn, executor_id)?;
             }
-            RequestPayload::CreateOrUpdateContent { entries } => {
-                self.set_content(db, &txn, entries.iter().map(|e| &e.content))?;
-            }
-            RequestPayload::TombstoneContentTree { content_metadata } => {
-                self.tombstone_content_tree(db, &txn, content_metadata)?;
-            }
-            RequestPayload::TombstoneContent { content_metadata } => {
-                let updated_content: Vec<_> =
-                    content_metadata.iter().filter(|c| !c.tombstoned).collect();
-                let deleted_content: Vec<_> =
-                    content_metadata.iter().filter(|c| c.tombstoned).collect();
-
-                self.update_graphs(db, &txn, updated_content)?;
-                self.tombstone_content_tree(db, &txn, deleted_content)?;
+            RequestPayload::TombstoneIngestedDataObject(request) => {
+                self.tombstone_ingested_data_object(db, &txn, request)?;
             }
             RequestPayload::CreateNamespace { name } => {
                 self.set_namespace(db, &txn, name)?;
@@ -1537,26 +1551,6 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::CreateOrUpdateContent { entries } => {
-                for entry in entries {
-                    let mut guard = self.metrics.lock().unwrap();
-                    if let Some(prev_parent) = entry.previous_parent {
-                        self.content_children_table
-                            .remove(&prev_parent, &entry.content.id);
-                    }
-                    if let Some(parent_id) = entry.content.parent_id {
-                        self.content_children_table
-                            .insert(&parent_id, &entry.content.id);
-                        guard.content_extracted += 1;
-                        guard.content_extracted_bytes += entry.content.size_bytes;
-                    } else {
-                        guard.content_uploads += 1;
-                        guard.content_bytes += entry.content.size_bytes;
-                    }
-                    let _ = self.new_content_channel.send(());
-                }
-                Ok(())
-            }
             RequestPayload::UpdateTask {
                 task,
                 executor_id,
@@ -1588,14 +1582,12 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::DeleteExtractionGraph { .. } |
-            RequestPayload::DeleteExtractionGraphByName { .. } |
+            RequestPayload::DeleteComputeGraph { .. } |
             RequestPayload::CreateExtractionGraphLink { .. } |
             RequestPayload::CreateNamespace { .. } |
             RequestPayload::JoinCluster { .. } |
             RequestPayload::RemoveExecutor { .. } |
-            RequestPayload::TombstoneContent { .. } |
-            RequestPayload::TombstoneContentTree { .. } => Ok(()),
+            RequestPayload::TombstoneIngestedDataObject { .. } => Ok(()),
             _ => Ok(()),
         }
     }
@@ -1662,26 +1654,38 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn delete_extraction_graph_by_name(
+    fn delete_compute_graph(
         &self,
         db: &OptimisticTransactionDB,
         txn: &Transaction<OptimisticTransactionDB>,
-        extraction_graph: &str,
-        namespace: &str,
+        request: &DeleteComputeGraphRequest,
     ) -> Result<(), StateMachineError> {
-        let graph = self.get_extraction_graphs_by_name(namespace, &[extraction_graph], db)?;
-        match graph.first() {
-            Some(Some(graph)) => {
-                txn.delete_cf(StateMachineColumns::ExtractionGraphs.cf(db), graph.key())
-                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-            }
-            _ => {
-                warn!(
-                    "Extraction graph with name {} not found in namespace {}",
-                    extraction_graph, namespace
-                );
-            }
+        let key_prefix = format!("{}_{}", request.namespace, request.graph_name);
+        // Delete ingested data objects 
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+        let mode = IteratorMode::From(key_prefix.as_bytes(), Direction::Forward);
+        let itr = db.iterator_cf_opt(StateMachineColumns::IngestedDataObjects.cf(db), read_options, mode);
+        for kv in itr {
+            let (key, _) = kv.map_err(|e| StateMachineError::DatabaseError(format!("Error reading ingested data object: {}", e)))?;
+            let key = String::from_utf8(key.to_vec()).map_err(|e| StateMachineError::DatabaseError(format!("Error reading ingested data object: {}", e)))?;
+            txn.delete_cf(StateMachineColumns::IngestedDataObjects.cf(db), key)
+                .map_err(|e| StateMachineError::DatabaseError(format!("Error deleting ingested data object: {}", e)))?;
         }
+        // Delete fn outputs
+        let mut read_options = ReadOptions::default();
+        read_options.set_readahead_size(4_194_304);
+        let mode = IteratorMode::From(key_prefix.as_bytes(), Direction::Forward);
+        let itr = db.iterator_cf_opt(StateMachineColumns::DataObjects.cf(db), read_options, mode);
+        for kv in itr {
+            let (key, _) = kv.map_err(|e| StateMachineError::DatabaseError(format!("Error reading fn output: {}", e)))?;
+            let key = String::from_utf8(key.to_vec()).map_err(|e| StateMachineError::DatabaseError(format!("Error reading fn output: {}", e)))?;
+            txn.delete_cf(StateMachineColumns::DataObjects.cf(db), key)
+                .map_err(|e| StateMachineError::DatabaseError(format!("Error deleting fn output: {}", e)))?;
+        }
+        // Delete compute graph
+        txn.delete_cf(StateMachineColumns::ComputeGraphs.cf(db), key_prefix.as_bytes())
+            .map_err(|e| StateMachineError::DatabaseError(format!("Error deleting compute graph: {}", e)))?;
         Ok(())
     }
 

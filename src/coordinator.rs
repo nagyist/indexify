@@ -484,13 +484,6 @@ impl Coordinator {
         self.shared_state.get_state_change_watcher()
     }
 
-    pub async fn create_content_metadata(
-        &self,
-        content_list: Vec<indexify_internal_api::ContentMetadata>,
-    ) -> Result<Vec<CreateContentStatus>> {
-        self.shared_state.create_content_batch(content_list).await
-    }
-
     pub fn get_leader_change_watcher(&self) -> Receiver<bool> {
         self.shared_state.leader_change_rx.clone()
     }

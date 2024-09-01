@@ -230,12 +230,6 @@ pub mod db_utils {
             "creating content for task parent: {:?} id: {:?}",
             task.content_metadata.id.id, id
         );
-        let content = create_content_for_task(coordinator, task, id).await?;
-        let create_res = coordinator
-            .create_content_metadata(vec![content.clone()])
-            .await?;
-        assert_eq!(create_res.len(), 1);
-        assert_eq!(*create_res.first().unwrap(), CreateContentStatus::Created);
         complete_task(coordinator, task, executor_id).await
     }
 

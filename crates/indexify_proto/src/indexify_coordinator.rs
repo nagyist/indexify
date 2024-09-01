@@ -1080,36 +1080,6 @@ pub mod coordinator_service_client {
             self.inner = self.inner.max_encoding_message_size(limit);
             self
         }
-        pub async fn create_content(
-            &mut self,
-            request: impl tonic::IntoRequest<super::CreateContentRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CreateContentResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/CreateContent",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "CreateContent",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
         pub async fn get_content_metadata(
             &mut self,
             request: impl tonic::IntoRequest<super::GetContentMetadataRequest>,
@@ -1863,13 +1833,6 @@ pub mod coordinator_service_server {
     /// Generated trait containing gRPC methods that should be implemented for use with CoordinatorServiceServer.
     #[async_trait]
     pub trait CoordinatorService: Send + Sync + 'static {
-        async fn create_content(
-            &self,
-            request: tonic::Request<super::CreateContentRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::CreateContentResponse>,
-            tonic::Status,
-        >;
         async fn get_content_metadata(
             &self,
             request: tonic::Request<super::GetContentMetadataRequest>,
@@ -2128,53 +2091,6 @@ pub mod coordinator_service_server {
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
             let inner = self.inner.clone();
             match req.uri().path() {
-                "/indexify_coordinator.CoordinatorService/CreateContent" => {
-                    #[allow(non_camel_case_types)]
-                    struct CreateContentSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<
-                        T: CoordinatorService,
-                    > tonic::server::UnaryService<super::CreateContentRequest>
-                    for CreateContentSvc<T> {
-                        type Response = super::CreateContentResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::CreateContentRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as CoordinatorService>::create_content(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = CreateContentSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/indexify_coordinator.CoordinatorService/GetContentMetadata" => {
                     #[allow(non_camel_case_types)]
                     struct GetContentMetadataSvc<T: CoordinatorService>(pub Arc<T>);

@@ -839,150 +839,6 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_content_batch(
-        &self,
-        content_metadata: Vec<internal_api::ContentMetadata>,
-    ) -> Result<Vec<CreateContentStatus>> {
-        if content_metadata.is_empty() {
-            return Ok(Vec::new());
-        }
-        let ns = &content_metadata.first().unwrap().namespace.clone();
-        let extraction_graph_names = &content_metadata
-            .iter()
-            .flat_map(|c| c.extraction_graph_names.clone())
-            .collect_vec();
-        let extraction_graphs = self.get_extraction_graphs_by_name(ns, extraction_graph_names)?;
-        for (eg, extraction_graph_names) in
-            extraction_graphs.into_iter().zip(extraction_graph_names)
-        {
-            if eg.is_none() {
-                return Err(anyhow!(
-                    "Extraction graph with name {} not found",
-                    extraction_graph_names
-                ));
-            }
-        }
-
-        let mut statuses = Vec::new();
-
-        let content_ids: Vec<String> = content_metadata.iter().map(|c| c.id.id.clone()).collect();
-        let existing_content = self.get_content_metadata_batch(content_ids.clone()).await?;
-        let existing_content_map: HashMap<String, internal_api::ContentMetadata> = existing_content
-            .into_iter()
-            .map(|c| (c.id.id.to_string(), c))
-            .collect();
-
-        let mut state_changes = Vec::new();
-        let mut update_entries = Vec::new();
-
-        for mut incoming_content in content_metadata {
-            if let Some(existing_content) =
-                existing_content_map.get(&incoming_content.id.id.to_string())
-            {
-                if existing_content.hash != incoming_content.hash {
-                    // This is a root node that is being updated. Mark existing content as no
-                    // longer latest and write both existing and new content.
-                    incoming_content.id.version = existing_content.id.version + 1;
-                    add_update_entry(
-                        &mut update_entries,
-                        &mut state_changes,
-                        &mut statuses,
-                        incoming_content,
-                    );
-                    let mut existing_content = existing_content.clone();
-                    existing_content.latest = false;
-                    update_entries.push(CreateOrUpdateContentEntry {
-                        content: existing_content,
-                        previous_parent: None,
-                    });
-                } else {
-                    tracing::warn!("Content with the same id and hash has been received");
-                    statuses.push(CreateContentStatus::Duplicate);
-                }
-                continue;
-            }
-            let incoming_content_parent_id = match incoming_content.parent_id.clone() {
-                None => {
-                    // This is a new root node, create the content
-                    add_update_entry(
-                        &mut update_entries,
-                        &mut state_changes,
-                        &mut statuses,
-                        incoming_content,
-                    );
-                    continue;
-                }
-                Some(parent_id) => parent_id,
-            };
-
-            // Setup parent id with correct version
-            let parent_content = self
-                .state_machine
-                .get_latest_version_of_content(&incoming_content_parent_id.id)?
-                .ok_or_else(|| anyhow!("parent content not found"))?;
-            incoming_content.parent_id = Some(parent_content.id.clone());
-
-            // Check if there is an existing content with the same hash under the previous
-            // root.
-            let root_id = incoming_content
-                .root_content_id
-                .clone()
-                .ok_or_else(|| anyhow!("content with parent id must have root id"))?;
-            let root_content = self
-                .state_machine
-                .get_latest_version_of_content(&root_id)?
-                .ok_or_else(|| anyhow!("root content {:?} not found", root_id))?;
-
-            let parent_prev_version_tree = self
-                .state_machine
-                .get_content_tree_metadata_with_version(&ContentMetadataId::new_with_version(
-                    &root_content.id.id,
-                    root_content.id.version - 1,
-                ))?;
-
-            // Compare the hashes of the predecessor's children to the incoming content's
-            // hash. If there is a match, flip the pointers for existing content because
-            // this is identical content.
-            match parent_prev_version_tree
-                .into_iter()
-                .skip(1) // skip root content
-                .find(|content| content.hash == incoming_content.hash)
-            {
-                None => {
-                    add_update_entry(
-                        &mut update_entries,
-                        &mut state_changes,
-                        &mut statuses,
-                        incoming_content,
-                    );
-                }
-                Some(mut content) => {
-                    // No new content state change is needed since content is identical.
-                    let previous_parent = content.parent_id.replace(parent_content.id.clone());
-                    update_entries.push(CreateOrUpdateContentEntry {
-                        content,
-                        previous_parent,
-                    });
-                    statuses.push(CreateContentStatus::Duplicate);
-                }
-            };
-        }
-
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateOrUpdateContent {
-                entries: update_entries,
-            },
-            new_state_changes: state_changes,
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft
-            .client_write(req)
-            .await
-            .map_err(|e| anyhow!("unable to create new content metadata: {}", e.to_string()))?;
-
-        Ok(statuses)
-    }
-
     /// Get content based on id's without version. Will fetch the latest version
     /// for each one
     pub async fn get_content_metadata_batch(
@@ -1268,7 +1124,6 @@ mod tests {
             id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
-        node.create_content_batch(vec![content.clone()]).await?;
 
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -1295,7 +1150,6 @@ mod tests {
             id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
-        node.create_content_batch(vec![content.clone()]).await?;
         let task = make_task("task_id", &content);
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateTasks {
@@ -1356,7 +1210,6 @@ mod tests {
             id: ContentMetadataId::new("content_id"),
             ..Default::default()
         };
-        node.create_content_batch(vec![content.clone()]).await?;
         let task = make_task("task_id", &content);
         let request = StateMachineUpdateRequest {
             payload: RequestPayload::CreateTasks {

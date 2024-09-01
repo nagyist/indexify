@@ -719,22 +719,6 @@ impl StateMachineStore {
         })
     }
 
-    fn send_gc_tasks(&self, gc_tasks: Vec<indexify_internal_api::GarbageCollectionTask>) {
-        let expected_receiver_count = self.data.gc_tasks_tx.receiver_count();
-        for gc_task in gc_tasks {
-            match self.data.gc_tasks_tx.send(gc_task.clone()) {
-                Ok(sent_count) => {
-                    if sent_count < expected_receiver_count {
-                        tracing::error!("The gc task event did not reach all listeners");
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Failed to send task {:?}: {}", gc_task, e);
-                }
-            }
-        }
-    }
-
     async fn apply_entry(&self, entry: typ::Entry) -> Result<Option<String>, StateMachineError> {
         {
             let mut guard = self.data.last_applied_log_id.write().await;
@@ -760,16 +744,6 @@ impl StateMachineStore {
                         .apply_state_machine_updates(req.clone(), &db, txn)?;
                 if let Some(change_id) = change_id {
                     let _ = self.data.state_change_tx.send(change_id);
-                }
-                //  if the payload is a GC task, send it via channel
-                match req.payload {
-                    RequestPayload::DeleteExtractionGraph {
-                        graph_id: _,
-                        gc_task,
-                    } => {
-                        self.send_gc_tasks(vec![gc_task]);
-                    }
-                    _ => {}
                 }
             }
             EntryPayload::Membership(membership) => {

@@ -352,32 +352,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(ExecutorsHeartbeatResponse {}))
     }
 
-    async fn create_content(
-        &self,
-        request: tonic::Request<CreateContentRequest>,
-    ) -> Result<tonic::Response<CreateContentResponse>, tonic::Status> {
-        let content_meta = request
-            .into_inner()
-            .content
-            .ok_or(tonic::Status::aborted("content is missing"))?;
-        let content_meta: indexify_internal_api::ContentMetadata =
-            content_meta.try_into().map_err(|e| {
-                tonic::Status::aborted(format!("unable to convert content metadata: {}", e))
-            })?;
-        let content_list = vec![content_meta];
-        let statuses = self
-            .coordinator
-            .create_content_metadata(content_list)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(CreateContentResponse {
-            status: *statuses
-                .first()
-                .ok_or_else(|| tonic::Status::aborted("result invalid"))?
-                as i32,
-        }))
-    }
-
     async fn list_content(
         &self,
         request: tonic::Request<ListContentRequest>,

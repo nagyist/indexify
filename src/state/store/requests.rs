@@ -49,6 +49,19 @@ pub struct CreateComputeGraphRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TombstoneIngestedDataObjectRequest {
+    pub namespace: String,
+    pub id: String,
+    pub compute_graph_name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DeleteComputeGraphRequest {
+    pub namespace: String,
+    pub graph_name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum RequestPayload {
     //  NOTE: This isn't strictly a state machine update. It's used to change cluster membership.
     JoinCluster {
@@ -71,28 +84,11 @@ pub enum RequestPayload {
         assignments: HashMap<TaskId, ExecutorId>,
     },
     CreateComputeGraph(CreateComputeGraphRequest),
-    DeleteExtractionGraph {
-        graph_id: String,
-        gc_task: GarbageCollectionTask,
-    },
-    DeleteExtractionGraphByName {
-        extraction_graph: String,
-        namespace: String,
-    },
+    DeleteComputeGraph(DeleteComputeGraphRequest),
     CreateExtractionGraphLink {
         extraction_graph_link: ExtractionGraphLink,
     },
-    CreateOrUpdateContent {
-        entries: Vec<CreateOrUpdateContentEntry>,
-    },
-    TombstoneContentTree {
-        content_metadata: Vec<internal_api::ContentMetadata>,
-    },
-    // Tombstone content or delete one of the graph associations.
-    // This is used when a graph is deleted.
-    TombstoneContent {
-        content_metadata: Vec<internal_api::ContentMetadata>,
-    },
+    TombstoneIngestedDataObject(TombstoneIngestedDataObjectRequest),
     UpdateTask {
         task: internal_api::Task,
         executor_id: Option<String>,
