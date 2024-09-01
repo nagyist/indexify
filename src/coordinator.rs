@@ -264,17 +264,6 @@ impl Coordinator {
         Ok(())
     }
 
-    pub async fn update_gc_task(
-        &self,
-        gc_task_id: &str,
-        outcome: internal_api::TaskOutcome,
-    ) -> Result<()> {
-        let mut gc_task = self.shared_state.gc_task_with_id(gc_task_id).await?;
-        gc_task.outcome = outcome;
-        self.shared_state.update_gc_task(gc_task).await?;
-        Ok(())
-    }
-
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
         if self.shared_state.namespace_exists(namespace).await? {
             return Ok(());

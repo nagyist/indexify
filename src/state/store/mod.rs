@@ -761,12 +761,8 @@ impl StateMachineStore {
                 if let Some(change_id) = change_id {
                     let _ = self.data.state_change_tx.send(change_id);
                 }
-
                 //  if the payload is a GC task, send it via channel
                 match req.payload {
-                    RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
-                        self.send_gc_tasks(gc_tasks);
-                    }
                     RequestPayload::DeleteExtractionGraph {
                         graph_id: _,
                         gc_task,

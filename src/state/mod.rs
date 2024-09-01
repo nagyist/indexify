@@ -707,30 +707,6 @@ impl App {
         Ok(())
     }
 
-    pub async fn create_gc_tasks(&self, gc_tasks: Vec<GarbageCollectionTask>) -> Result<()> {
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft.client_write(request).await?;
-        Ok(())
-    }
-
-    pub async fn update_gc_task(&self, gc_task: GarbageCollectionTask) -> Result<()> {
-        let mark_finished = gc_task.outcome != internal_api::TaskOutcome::Unknown;
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpdateGarbageCollectionTask {
-                gc_task,
-                mark_finished,
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft.client_write(req).await?;
-        Ok(())
-    }
-
     pub async fn get_graph_analytics(
         &self,
         namespace: &str,

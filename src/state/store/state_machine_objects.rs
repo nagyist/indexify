@@ -1360,29 +1360,6 @@ impl IndexifyState {
                     self.inc_root_ref_count(task.content_metadata.get_root_id());
                 }
             }
-            RequestPayload::CreateOrAssignGarbageCollectionTask { gc_tasks } => {
-                self.set_garbage_collection_tasks(db, &txn, gc_tasks)?;
-            }
-            RequestPayload::UpdateGarbageCollectionTask {
-                gc_task,
-                mark_finished,
-            } => {
-                if *mark_finished {
-                    tracing::info!("Marking garbage collection task as finished: {:?}", gc_task);
-                    self.update_garbage_collection_tasks(db, &txn, &vec![gc_task])?;
-                    if gc_task.task_type == ServerTaskType::Delete ||
-                        gc_task.task_type == ServerTaskType::DeleteBlobStore
-                    {
-                        self.delete_content(
-                            db,
-                            &txn,
-                            gc_task.content_id.clone(),
-                            gc_task.latest,
-                            gc_task.change_offset,
-                        )?;
-                    }
-                }
-            }
             RequestPayload::AssignTask { assignments } => {
                 let assignments: HashMap<&String, HashSet<TaskId>> =
                     assignments
@@ -1560,18 +1537,6 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::UpdateGarbageCollectionTask {
-                gc_task,
-                mark_finished,
-            } => {
-                if mark_finished &&
-                    (gc_task.task_type == ServerTaskType::Delete ||
-                        gc_task.task_type == ServerTaskType::DeleteBlobStore)
-                {
-                    self.content_children_table.remove_all(&gc_task.content_id);
-                }
-                Ok(())
-            }
             RequestPayload::CreateOrUpdateContent { entries } => {
                 for entry in entries {
                     let mut guard = self.metrics.lock().unwrap();
@@ -1625,7 +1590,6 @@ impl IndexifyState {
             }
             RequestPayload::DeleteExtractionGraph { .. } |
             RequestPayload::DeleteExtractionGraphByName { .. } |
-            RequestPayload::CreateOrAssignGarbageCollectionTask { .. } |
             RequestPayload::CreateExtractionGraphLink { .. } |
             RequestPayload::CreateNamespace { .. } |
             RequestPayload::JoinCluster { .. } |

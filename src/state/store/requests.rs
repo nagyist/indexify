@@ -70,13 +70,6 @@ pub enum RequestPayload {
     AssignTask {
         assignments: HashMap<TaskId, ExecutorId>,
     },
-    CreateOrAssignGarbageCollectionTask {
-        gc_tasks: Vec<GarbageCollectionTask>,
-    },
-    UpdateGarbageCollectionTask {
-        gc_task: GarbageCollectionTask,
-        mark_finished: bool,
-    },
     CreateComputeGraph(CreateComputeGraphRequest),
     DeleteExtractionGraph {
         graph_id: String,
