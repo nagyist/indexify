@@ -2,7 +2,6 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use axum::{http::StatusCode, Json};
-use indexify_internal_api::StructuredDataSchema;
 use indexify_proto::indexify_coordinator::{
     self,
     coordinator_service_client,
@@ -10,7 +9,6 @@ use indexify_proto::indexify_coordinator::{
     ExtractionPolicy,
     Task,
 };
-use itertools::Itertools;
 use opentelemetry::propagation::{Injector, TextMapPropagator};
 use tokio::sync::Mutex;
 use tonic::{
@@ -218,28 +216,6 @@ impl CoordinatorClient {
             current_leader: raft_metrics.current_leader,
         };
         Ok(Json(snapshot_response)).map_err(IndexifyAPIError::internal_error)
-    }
-
-    pub async fn get_structured_schemas(
-        &self,
-        namespace: &str,
-    ) -> Result<Vec<StructuredDataSchema>> {
-        let request =
-            tonic::Request::new(indexify_proto::indexify_coordinator::GetAllSchemaRequest {
-                namespace: namespace.to_string(),
-            });
-        let response = self.get().await?.list_schemas(request).await?.into_inner();
-        let schemas = response
-            .schemas
-            .into_iter()
-            .map(|schema| StructuredDataSchema {
-                id: "".to_string(),
-                extraction_graph_name: schema.extraction_graph_name,
-                namespace: namespace.to_string(),
-                columns: serde_json::from_str(&schema.columns).unwrap(),
-            })
-            .collect_vec();
-        Ok(schemas)
     }
 
     pub async fn all_task_assignments(&self) -> Result<TaskAssignments> {

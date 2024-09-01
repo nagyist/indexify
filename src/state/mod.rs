@@ -1392,37 +1392,6 @@ impl App {
         Ok(gc_task)
     }
 
-    pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
-        let index_ids = {
-            self.state_machine
-                .get_namespace_index_table()
-                .await
-                .get(namespace)
-                .cloned()
-                .unwrap_or_default()
-        };
-        let indexes = self.state_machine.get_indexes_from_ids(index_ids).await?;
-        Ok(indexes)
-    }
-
-    pub async fn get_index(&self, id: &str) -> Result<internal_api::Index> {
-        let index = self
-            .state_machine
-            .get_from_cf::<internal_api::Index, _>(StateMachineColumns::IndexTable, id)?
-            .ok_or_else(|| anyhow!("Index with id {} not found", id))?;
-        Ok(index)
-    }
-
-    pub async fn set_indexes(&self, indexes: Vec<internal_api::Index>) -> Result<()> {
-        let req = StateMachineUpdateRequest {
-            payload: RequestPayload::SetIndex { indexes },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        self.forwardable_raft.client_write(req).await?;
-        Ok(())
-    }
-
     pub async fn list_state_changes(&self) -> Result<Vec<StateChange>> {
         let state_changes = self
             .state_machine
@@ -1432,37 +1401,6 @@ impl App {
             .map(|(_, value)| value)
             .collect();
         Ok(state_changes)
-    }
-
-    pub async fn get_structured_data_schema(
-        &self,
-        namespace: &str,
-        content_source: &str,
-    ) -> Result<StructuredDataSchema> {
-        let id = StructuredDataSchema::schema_id(namespace, content_source);
-        let schema = self
-            .state_machine
-            .get_from_cf::<StructuredDataSchema, _>(
-                StateMachineColumns::StructuredDataSchemas,
-                &id,
-            )?
-            .ok_or_else(|| anyhow!("Schema with id {} not found", id))?;
-        Ok(schema)
-    }
-
-    pub async fn get_schemas_for_namespace(
-        &self,
-        namespace: &str,
-    ) -> Result<Vec<StructuredDataSchema>> {
-        let schemas_for_ns = self
-            .state_machine
-            .get_schemas_by_namespace()
-            .await
-            .get(namespace)
-            .cloned()
-            .unwrap_or(HashSet::new());
-        let schemas = self.state_machine.get_schemas(schemas_for_ns).await?;
-        Ok(schemas)
     }
 
     pub async fn get_unfinished_tasks_by_extractor(

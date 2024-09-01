@@ -1,6 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet},
-    hash::{Hash, Hasher},
+    collections::{HashMap, HashSet},
     pin::Pin,
     sync::Arc,
     time::SystemTime,
@@ -396,34 +395,6 @@ impl Coordinator {
         self.get_locked_my_executors().remove(executor_id);
         self.shared_state.remove_executor(executor_id).await?;
         Ok(())
-    }
-
-    pub async fn list_indexes(&self, namespace: &str) -> Result<Vec<internal_api::Index>> {
-        self.shared_state.list_indexes(namespace).await
-    }
-
-    pub async fn get_index(&self, namespace: &str, name: &str) -> Result<internal_api::Index> {
-        let mut s = DefaultHasher::new();
-        namespace.hash(&mut s);
-        name.hash(&mut s);
-        let id = format!("{:x}", s.finish());
-        self.shared_state.get_index(&id).await
-    }
-
-    pub async fn update_indexes_state(&self, indexes: Vec<internal_api::Index>) -> Result<()> {
-        self.shared_state.set_indexes(indexes).await
-    }
-
-    pub async fn get_extractor_coordinates(&self, extractor_name: &str) -> Result<Vec<String>> {
-        let executors = self
-            .shared_state
-            .get_executors_for_extractor(extractor_name)
-            .await?;
-        let addresses = executors
-            .iter()
-            .map(|e| e.addr.clone())
-            .collect::<Vec<String>>();
-        Ok(addresses)
     }
 
     pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
@@ -831,20 +802,6 @@ impl Coordinator {
             .tombstone_content_batch(content_ids)
             .await?;
         Ok(())
-    }
-
-    pub async fn get_schema(
-        &self,
-        namespace: &str,
-        content_source: &str,
-    ) -> Result<StructuredDataSchema> {
-        self.shared_state
-            .get_structured_data_schema(namespace, content_source)
-            .await
-    }
-
-    pub async fn list_schemas(&self, namespace: &str) -> Result<Vec<StructuredDataSchema>> {
-        self.shared_state.get_schemas_for_namespace(namespace).await
     }
 
     pub fn get_leader_change_watcher(&self) -> Receiver<bool> {

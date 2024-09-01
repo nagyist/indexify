@@ -39,23 +39,11 @@ service CoordinatorService {
 
     rpc GetExtractionGraphAnalytics(GetExtractionGraphAnalyticsRequest) returns (GetExtractionGraphAnalyticsResponse) {}
 
-    rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse) {}
-
-    rpc GetIndex(GetIndexRequest) returns (GetIndexResponse) {}
-
-    rpc UpdateIndexesState(UpdateIndexesStateRequest) returns (UpdateIndexesStateResponse) {}
-
-    rpc GetExtractorCoordinates(GetExtractorCoordinatesRequest) returns (GetExtractorCoordinatesResponse) {}
-
     rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse) {}
 
     rpc ListStateChanges(ListStateChangesRequest) returns (ListStateChangesResponse) {}
 
     rpc ListTasks(ListTasksRequest) returns (ListTasksResponse) {}
-
-    rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse) {}
-
-    rpc ListSchemas(GetAllSchemaRequest) returns (GetAllSchemaResponse) {}
 
     rpc GetRaftMetricsSnapshot(GetRaftMetricsSnapshotRequest) returns (RaftMetricsSnapshotResponse) {}
 

@@ -87,9 +87,6 @@ pub enum RequestPayload {
     TombstoneContent {
         content_metadata: Vec<internal_api::ContentMetadata>,
     },
-    SetIndex {
-        indexes: Vec<internal_api::Index>,
-    },
     UpdateTask {
         task: internal_api::Task,
         executor_id: Option<String>,

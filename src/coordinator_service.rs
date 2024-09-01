@@ -37,19 +37,12 @@ use indexify_proto::indexify_coordinator::{
     ExtractionGraphLinksResponse,
     GcTask,
     GcTaskAcknowledgement,
-    GetAllSchemaRequest,
-    GetAllSchemaResponse,
     GetAllTaskAssignmentRequest,
     GetContentMetadataRequest,
     GetContentTreeMetadataRequest,
-    GetExtractorCoordinatesRequest,
-    GetIndexRequest,
-    GetIndexResponse,
     GetIngestionInfoRequest,
     GetIngestionInfoResponse,
     GetRaftMetricsSnapshotRequest,
-    GetSchemaRequest,
-    GetSchemaResponse,
     GetTaskRequest,
     GetTaskResponse,
     HeartbeatRequest,
@@ -62,8 +55,6 @@ use indexify_proto::indexify_coordinator::{
     ListExtractionGraphResponse,
     ListExtractorsRequest,
     ListExtractorsResponse,
-    ListIndexesRequest,
-    ListIndexesResponse,
     ListStateChangesRequest,
     ListTasksRequest,
     ListTasksResponse,
@@ -79,8 +70,6 @@ use indexify_proto::indexify_coordinator::{
     TombstoneContentRequest,
     TombstoneContentResponse,
     Uint64List,
-    UpdateIndexesStateRequest,
-    UpdateIndexesStateResponse,
     UpdateTaskRequest,
     UpdateTaskResponse,
     WaitContentExtractionRequest,
@@ -876,76 +865,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(UpdateTaskResponse {}))
     }
 
-    async fn list_indexes(
-        &self,
-        request: Request<ListIndexesRequest>,
-    ) -> Result<Response<ListIndexesResponse>, Status> {
-        let request = request.into_inner();
-        let indexes = self
-            .coordinator
-            .list_indexes(&request.namespace)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let indexes = indexes
-            .into_iter()
-            .map(|i| i.into())
-            .collect::<Vec<indexify_coordinator::Index>>();
-        Ok(tonic::Response::new(ListIndexesResponse { indexes }))
-    }
-
-    async fn get_index(
-        &self,
-        request: Request<GetIndexRequest>,
-    ) -> Result<Response<GetIndexResponse>, Status> {
-        let request = request.into_inner();
-        let index = self
-            .coordinator
-            .get_index(&request.namespace, &request.name)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(GetIndexResponse {
-            index: Some(index.into()),
-        }))
-    }
-
-    async fn update_indexes_state(
-        &self,
-        request: Request<UpdateIndexesStateRequest>,
-    ) -> Result<Response<UpdateIndexesStateResponse>, Status> {
-        let indexes: Vec<internal_api::Index> = request
-            .into_inner()
-            .indexes
-            .into_iter()
-            .map(|proto_index| {
-                let mut index: internal_api::Index = proto_index.into();
-                index.visibility = true;
-                index
-            })
-            .collect();
-        self.coordinator
-            .update_indexes_state(indexes)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(Response::new(UpdateIndexesStateResponse {}))
-    }
-
-    async fn get_extractor_coordinates(
-        &self,
-        req: Request<GetExtractorCoordinatesRequest>,
-    ) -> Result<Response<indexify_coordinator::GetExtractorCoordinatesResponse>, Status> {
-        let req = req.into_inner();
-        let extractor_coordinates = self
-            .coordinator
-            .get_extractor_coordinates(&req.extractor)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(Response::new(
-            indexify_coordinator::GetExtractorCoordinatesResponse {
-                addrs: extractor_coordinates,
-            },
-        ))
-    }
-
     async fn get_content_metadata(
         &self,
         req: Request<GetContentMetadataRequest>,
@@ -1082,50 +1001,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             .await
             .map_err(|e| tonic::Status::aborted(e.to_string()))?;
         Ok(Response::new(response))
-    }
-
-    async fn get_schema(
-        &self,
-        req: Request<GetSchemaRequest>,
-    ) -> Result<Response<GetSchemaResponse>, Status> {
-        let req = req.into_inner();
-        let schema = self
-            .coordinator
-            .get_schema(&req.namespace, &req.extraction_graph_name)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(Response::new(GetSchemaResponse {
-            schema: Some(indexify_coordinator::StructuredDataSchema {
-                id: schema.id,
-                extraction_graph_name: schema.extraction_graph_name,
-                namespace: schema.namespace,
-                columns: serde_json::to_string(&schema.columns).unwrap(),
-            }),
-        }))
-    }
-
-    async fn list_schemas(
-        &self,
-        req: Request<GetAllSchemaRequest>,
-    ) -> Result<Response<GetAllSchemaResponse>, Status> {
-        let req = req.into_inner();
-        let schemas = self
-            .coordinator
-            .list_schemas(&req.namespace)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-
-        Ok(Response::new(GetAllSchemaResponse {
-            schemas: schemas
-                .into_iter()
-                .map(|s| indexify_coordinator::StructuredDataSchema {
-                    id: s.id,
-                    extraction_graph_name: s.extraction_graph_name,
-                    namespace: s.namespace,
-                    columns: serde_json::to_string(&s.columns).unwrap(),
-                })
-                .collect(),
-        }))
     }
 
     async fn get_raft_metrics_snapshot(

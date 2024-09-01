@@ -22,7 +22,6 @@ use indexify_internal_api::{
     ExtractionGraphLink,
     ExtractionPolicy,
     NamespaceName,
-    StructuredDataSchema,
     Task,
     TaskAnalytics,
 };
@@ -45,15 +44,10 @@ use openraft::{
     StoredMembership,
     Vote,
 };
-use requests::{
-    CreateOrUpdateContentEntry,
-    StateMachineUpdateRequest,
-};
 use rocksdb::{
     checkpoint::Checkpoint,
     ColumnFamily,
     ColumnFamilyDescriptor,
-    DBCommon,
     Direction,
     IteratorMode,
     OptimisticTransactionDB,
@@ -65,7 +59,6 @@ use serde::{de::DeserializeOwned, Deserialize};
 use strum::{AsRefStr, IntoEnumIterator};
 use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
-use tracing::debug;
 use uuid::Uuid;
 
 type Node = BasicNode;
@@ -126,8 +119,6 @@ pub enum StateMachineColumns {
     ExtractionPolicies,                 //  ExtractionPolicyId -> ExtractionPolicy
     Extractors,                         //  ExtractorName -> ExtractorDescription
     Namespaces,                         //  Namespaces
-    IndexTable,                         //  String -> Index
-    StructuredDataSchemas,              //  SchemaId -> StructuredDataSchema
     ExtractionPoliciesAppliedOnContent, //  ContentId -> Vec<ExtractionPolicyIds>
     CoordinatorAddress,                 //  NodeId -> Coordinator address
     ExtractionGraphs,                   //  ExtractionGraphId -> ExtractionGraph
@@ -538,7 +529,6 @@ pub fn new_content_stream(
 impl StateMachineStore {
     async fn new(
         db_path: PathBuf,
-        log_store: &LogStore,
     ) -> Result<StateMachineStore, StorageError<NodeId>> {
         let (tx, rx) = tokio::sync::watch::channel(StateChangeId::new(std::u64::MAX));
         let (gc_tasks_tx, _) = broadcast::channel(100);
@@ -931,16 +921,6 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!("Failed to get task assignments: {}", e))
     }
 
-    pub async fn get_indexes_from_ids(
-        &self,
-        task_ids: HashSet<String>,
-    ) -> Result<Vec<indexify_internal_api::Index>> {
-        self.data
-            .indexify_state
-            .get_indexes_from_ids(task_ids, &self.db.read().unwrap())
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
     pub fn get_extraction_policies_from_ids(
         &self,
         extraction_policy_ids: HashSet<String>,
@@ -1039,12 +1019,6 @@ impl StateMachineStore {
         self.data
             .indexify_state
             .namespace_exists(namespace, &self.db.read().unwrap())
-    }
-
-    pub async fn get_schemas(&self, ids: HashSet<String>) -> Result<Vec<StructuredDataSchema>> {
-        self.data
-            .indexify_state
-            .get_schemas(ids, &self.db.read().unwrap())
     }
 
     pub fn get_extraction_graphs(
@@ -1666,7 +1640,7 @@ pub(crate) async fn new_storage<P: AsRef<Path>>(
 
     fs::create_dir_all(&db_path).expect("Failed to create db directory");
 
-    let sm_store = StateMachineStore::new(db_path, &log_store)
+    let sm_store = StateMachineStore::new(db_path)
         .await
         .map_err(|e| anyhow!("failed to create sm store: {}", e))?;
 

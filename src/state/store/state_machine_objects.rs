@@ -24,7 +24,6 @@ use internal_api::{
     ExtractionPolicy,
     ExtractionPolicyName,
     ExtractorDescription,
-    Index,
     StateChange,
     StructuredDataSchema,
     Task,
@@ -41,7 +40,6 @@ use super::{
     requests::{RequestPayload, StateChangeProcessed, StateMachineUpdateRequest},
     serializer::JsonEncode,
     ExecutorId,
-    ExtractionGraphId,
     ExtractionPolicyId,
     ExtractorName,
     JsonEncoder,
@@ -693,7 +691,6 @@ impl IndexifyState {
         for ep in extraction_graph.extraction_policies.to_owned() {
             self.set_extraction_policy(db, txn, &ep)?;
         }
-        self.set_schema(db, txn, structured_data_schema)?;
         Ok(())
     }
 
@@ -750,19 +747,6 @@ impl IndexifyState {
             changes.push(state_change);
         }
         Ok(changes)
-    }
-
-    fn set_index(
-        &self,
-        db: &OptimisticTransactionDB,
-        txn: &Transaction<OptimisticTransactionDB>,
-        index: &Index,
-        id: &String,
-    ) -> Result<(), StateMachineError> {
-        let serialized_index = JsonEncoder::encode(index)?;
-        txn.put_cf(StateMachineColumns::IndexTable.cf(db), id, serialized_index)
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-        Ok(())
     }
 
     fn update_tasks(
@@ -1244,22 +1228,6 @@ impl IndexifyState {
         Ok(())
     }
 
-    fn set_schema(
-        &self,
-        db: &OptimisticTransactionDB,
-        txn: &Transaction<OptimisticTransactionDB>,
-        schema: &StructuredDataSchema,
-    ) -> Result<(), StateMachineError> {
-        let serialized_schema = JsonEncoder::encode(schema)?;
-        txn.put_cf(
-            &StateMachineColumns::StructuredDataSchemas.cf(db),
-            schema.id.clone(),
-            serialized_schema,
-        )
-        .map_err(|e| StateMachineError::DatabaseError(format!("Error writing schema: {}", e)))?;
-        Ok(())
-    }
-
     pub fn update_content_extraction_policy_state(
         &self,
         db: &OptimisticTransactionDB,
@@ -1447,11 +1415,6 @@ impl IndexifyState {
             } => {
                 self.add_graph_to_content(db, &txn, content_ids, namespace, extraction_graph)?;
             }
-            RequestPayload::SetIndex { indexes } => {
-                for index in indexes {
-                    self.set_index(db, &txn, index, &index.id)?;
-                }
-            }
             RequestPayload::CreateTasks { tasks } => {
                 self.update_tasks(db, &txn, tasks.clone(), SystemTime::UNIX_EPOCH)?;
                 for task in tasks {
@@ -1606,9 +1569,6 @@ impl IndexifyState {
                 indexes,
             } => {
                 self.set_extraction_graph(db, &txn, extraction_graph, structured_data_schema)?;
-                for index in indexes {
-                    self.set_index(db, &txn, index, &index.id)?;
-                }
             }
             RequestPayload::CreateExtractionGraphLink {
                 extraction_graph_link,
@@ -1784,7 +1744,6 @@ impl IndexifyState {
             RequestPayload::CreateNamespace { .. } |
             RequestPayload::JoinCluster { .. } |
             RequestPayload::RemoveExecutor { .. } |
-            RequestPayload::SetIndex { .. } |
             RequestPayload::TombstoneContent { .. } |
             RequestPayload::TombstoneContentTree { .. } => Ok(()),
         }
@@ -1804,45 +1763,6 @@ impl IndexifyState {
             .transpose()
     }
 
-    fn delete_schema_for_graph(
-        &self,
-        db: &OptimisticTransactionDB,
-        txn: &Transaction<OptimisticTransactionDB>,
-        graph: &ExtractionGraph,
-    ) -> Result<(), StateMachineError> {
-        let cf = StateMachineColumns::StructuredDataSchemas.cf(db);
-        for item in txn.iterator_cf(cf, IteratorMode::Start) {
-            let (key, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            let schema = JsonEncoder::decode::<StructuredDataSchema>(&value)?;
-            if schema.namespace == graph.namespace && schema.extraction_graph_name == graph.name {
-                self.schemas_by_namespace
-                    .remove(&schema.namespace, &schema.id);
-                let _ = txn.delete_cf(cf, key);
-                break;
-            }
-        }
-        Ok(())
-    }
-
-    fn delete_indexes_for_graph(
-        &self,
-        db: &OptimisticTransactionDB,
-        txn: &Transaction<OptimisticTransactionDB>,
-        graph: &ExtractionGraph,
-    ) -> Result<(), StateMachineError> {
-        let cf = StateMachineColumns::IndexTable.cf(db);
-        for item in txn.iterator_cf(cf, IteratorMode::Start) {
-            let (key, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            let index = JsonEncoder::decode::<Index>(&value)?;
-            if index.namespace == graph.namespace && index.graph_name == graph.name {
-                self.namespace_index_table
-                    .remove(&index.namespace, &index.id);
-                let _ = txn.delete_cf(cf, key);
-            }
-        }
-        Ok(())
-    }
-
     #[allow(deprecated)]
     fn delete_extraction_graph_by_id(
         &self,
@@ -1857,8 +1777,6 @@ impl IndexifyState {
             let (key, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             let graph = JsonEncoder::decode::<ExtractionGraph>(&value)?;
             if ExtractionGraph::create_id(&graph.name, &graph.namespace) == graph_id {
-                self.delete_schema_for_graph(db, txn, &graph)?;
-                self.delete_indexes_for_graph(db, txn, &graph)?;
                 txn.delete_cf(StateMachineColumns::ExtractionGraphs.cf(db), key)
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
                 return Ok(());
@@ -1878,8 +1796,6 @@ impl IndexifyState {
         let graph = self.get_extraction_graphs_by_name(namespace, &[extraction_graph], db)?;
         match graph.first() {
             Some(Some(graph)) => {
-                self.delete_schema_for_graph(db, txn, graph)?;
-                self.delete_indexes_for_graph(db, txn, graph)?;
                 txn.delete_cf(StateMachineColumns::ExtractionGraphs.cf(db), graph.key())
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
             }
@@ -1933,28 +1849,6 @@ impl IndexifyState {
             })
             .collect();
         tasks
-    }
-
-    /// This method will fetch indexes based on the id's of the indexes provided
-    pub fn get_indexes_from_ids(
-        &self,
-        task_ids: HashSet<TaskId>,
-        db: &OptimisticTransactionDB,
-    ) -> Result<Vec<Index>, StateMachineError> {
-        let txn = db.transaction();
-        let indexes: Result<Vec<Index>, StateMachineError> = task_ids
-            .into_iter()
-            .map(|task_id| {
-                let index_bytes = txn
-                    .get_cf(StateMachineColumns::IndexTable.cf(db), task_id.as_bytes())
-                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-                    .ok_or_else(|| {
-                        StateMachineError::DatabaseError(format!("Index {} not found", task_id))
-                    })?;
-                JsonEncoder::decode(&index_bytes).map_err(StateMachineError::from)
-            })
-            .collect();
-        indexes
     }
 
     /// This method will fetch the executors from RocksDB CF based on the
@@ -2214,28 +2108,6 @@ impl IndexifyState {
     /// This method will get the namespace based on the key provided
     pub fn namespace_exists(&self, namespace: &str, db: &OptimisticTransactionDB) -> Result<bool> {
         Ok(get_from_cf::<String, &str>(db, StateMachineColumns::Namespaces, namespace)?.is_some())
-    }
-
-    pub fn get_schemas(
-        &self,
-        ids: HashSet<String>,
-        db: &OptimisticTransactionDB,
-    ) -> Result<Vec<StructuredDataSchema>> {
-        let txn = db.transaction();
-        let keys = ids
-            .iter()
-            .map(|id| (StateMachineColumns::StructuredDataSchemas.cf(db), id))
-            .collect_vec();
-        let schema_bytes = txn.multi_get_cf(keys);
-        let mut schemas = vec![];
-        for schema in schema_bytes {
-            let schema = schema
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?
-                .ok_or(StateMachineError::DatabaseError("Schema not found".into()))?;
-            let schema = JsonEncoder::decode(&schema)?;
-            schemas.push(schema);
-        }
-        Ok(schemas)
     }
 
     pub fn get_extraction_graphs(
@@ -2551,7 +2423,7 @@ impl IndexifyState {
             .extractor_executors_table
             .write()
             .unwrap();
-        let mut namespace_index_table = self
+        let namespace_index_table = self
             .namespace_index_table
             .namespace_index_table
             .write()
@@ -2562,7 +2434,7 @@ impl IndexifyState {
             .write()
             .unwrap();
         let mut unfinished_tasks_by_executor = self.unfinished_tasks_by_executor.write().unwrap();
-        let mut schemas_by_namespace = self
+        let schemas_by_namespace = self
             .schemas_by_namespace
             .schemas_by_namespace
             .write()
@@ -2656,24 +2528,6 @@ impl IndexifyState {
                     .or_default()
                     .insert(executor.id.clone());
             }
-        }
-
-        for index in self.iter_cf::<Index>(db, StateMachineColumns::IndexTable) {
-            let (_, index) = index?;
-            namespace_index_table
-                .entry(index.namespace.clone())
-                .or_default()
-                .insert(index.id.clone());
-        }
-
-        for schema in
-            self.iter_cf::<StructuredDataSchema>(db, StateMachineColumns::StructuredDataSchemas)
-        {
-            let (_, schema) = schema?;
-            schemas_by_namespace
-                .entry(schema.namespace.clone())
-                .or_default()
-                .insert(schema.id.clone());
         }
 
         Ok(())

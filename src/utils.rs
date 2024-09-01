@@ -1,5 +1,4 @@
 use std::{
-    fmt,
     time::{SystemTime, UNIX_EPOCH},
 };
 
