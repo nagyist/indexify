@@ -27,7 +27,6 @@ mod cmd;
 mod coordinator;
 mod coordinator_client;
 mod data_manager;
-mod extractor_router;
 mod forwardable_coordinator;
 mod garbage_collector;
 mod grpc_helper;

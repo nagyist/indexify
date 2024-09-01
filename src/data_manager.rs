@@ -208,7 +208,7 @@ impl DataManager {
             description: req.description.unwrap_or_default(),
             policies: extraction_policies,
         };
-        let response = self
+        let _ = self
             .get_coordinator_client()
             .await?
             .create_extraction_graph(req)
