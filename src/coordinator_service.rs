@@ -410,22 +410,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         }))
     }
 
-    async fn update_labels(
-        &self,
-        request: tonic::Request<indexify_coordinator::UpdateLabelsRequest>,
-    ) -> Result<tonic::Response<indexify_coordinator::UpdateLabelsResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let labels = internal_api::utils::convert_map_prost_to_serde_json(request.labels)
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        self.coordinator
-            .update_labels(&request.namespace, &request.content_id, labels)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(
-            indexify_coordinator::UpdateLabelsResponse {},
-        ))
-    }
-
     async fn tombstone_content(
         &self,
         request: tonic::Request<TombstoneContentRequest>,
@@ -491,23 +475,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         Ok(tonic::Response::new(response.try_into().map_err(|e| {
             tonic::Status::aborted(format!("unable to convert content metadata: {}", e))
         })?))
-    }
-
-    async fn list_active_contents(
-        &self,
-        request: tonic::Request<ListActiveContentsRequest>,
-    ) -> Result<tonic::Response<ListActiveContentsResponse>, tonic::Status> {
-        let req = request.into_inner();
-        let content_ids = self
-            .coordinator
-            .list_active_contents(&req.namespace)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?
-            .into_iter()
-            .collect_vec();
-        Ok(tonic::Response::new(ListActiveContentsResponse {
-            content_ids,
-        }))
     }
 
     async fn create_extraction_graph(

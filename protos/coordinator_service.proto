@@ -55,10 +55,6 @@ service CoordinatorService {
 
     rpc WaitContentExtraction(WaitContentExtractionRequest) returns (WaitContentExtractionResponse) {}
 
-    rpc ListActiveContents(ListActiveContentsRequest) returns (ListActiveContentsResponse) {}
-
-    rpc UpdateLabels(UpdateLabelsRequest) returns (UpdateLabelsResponse) {}
-
     rpc ExecutorsHeartbeat(ExecutorsHeartbeatRequest) returns (ExecutorsHeartbeatResponse) {}
 
     rpc LinkExtractionGraphs(LinkExtractionGraphsRequest) returns (LinkExtractionGraphsResponse) {}

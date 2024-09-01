@@ -265,19 +265,6 @@ impl DataManager {
         response.into_inner().try_into()
     }
 
-    pub async fn list_active_contents(&self, namespace: &str) -> Result<Vec<String>> {
-        let req = ListActiveContentsRequest {
-            namespace: namespace.to_string(),
-        };
-        let response = self
-            .get_coordinator_client()
-            .await?
-            .list_active_contents(req)
-            .await?;
-        let content_list = response.into_inner().content_ids;
-        Ok(content_list)
-    }
-
     #[tracing::instrument(skip(self, content_list))]
     pub async fn add_texts(
         &self,
