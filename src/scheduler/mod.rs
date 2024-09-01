@@ -5,7 +5,14 @@ use std::{
 };
 
 use anyhow::{anyhow, Ok, Result};
-use indexify_internal_api::{self as internal_api, ExtractionPolicy, StateChange};
+use indexify_internal_api::{
+    self as internal_api,
+    ExtractionPolicy,
+    InvokeComputeGraphPayload,
+    StateChange,
+    TaskBuilder,
+    StateChangeId,
+};
 use tracing::{error, info};
 
 use crate::{
@@ -78,57 +85,28 @@ impl Scheduler {
         }
     }
 
-    pub async fn create_new_tasks(&self, state_change: StateChange) -> Result<()> {
-        let mut tasks: Vec<internal_api::Task> = Vec::new();
-        let content = match self
+    pub async fn invoke_compute_graph(&self, payload: &InvokeComputeGraphPayload, state_change_id: StateChangeId) -> Result<()> {
+        let compute_graph = self
             .shared_state
             .state_machine
-            .get_latest_version_of_content(&state_change.object_id)?
-        {
-            Some(content) => content,
-            None => {
-                return self
-                    .shared_state
-                    .mark_change_events_as_processed(vec![state_change], Vec::new())
-                    .await
-            }
-        };
-        let graph_names = match &state_change.change_type {
-            indexify_internal_api::ChangeType::NewContent => content.extraction_graph_names.clone(),
-            _ => return Err(anyhow!("unexpected state change type")),
-        };
-        let extraction_policies = self
-            .shared_state
-            .match_extraction_policies_for_content(&content, &graph_names)
-            .await?;
-        let tables = self.tables_for_policies(&extraction_policies).await?;
-        for extraction_policy in extraction_policies {
-            let task = self
-                .create_task(&extraction_policy, &content, &tables)
-                .await?;
-            tasks.push(task);
-        }
-        if tasks.is_empty() {
-            return self
-                .shared_state
-                .mark_change_events_as_processed(
-                    vec![state_change],
-                    self.gc_state_change(content).await?,
-                )
-                .await;
-        }
+            .get_compute_graph(payload.namespace.as_str(), payload.graph_name.as_str())?;
 
-        self.shared_state
-            .create_tasks(tasks.clone(), state_change.id)
-            .await?;
-        let allocation_plan = self.allocate_tasks(tasks).await?;
-        if !allocation_plan.0.is_empty() {
-            self.shared_state
-                .commit_task_assignments(allocation_plan.0, state_change.id)
-                .await
-        } else {
-            Ok(())
+        if compute_graph.is_none() {
+            error!(
+                "compute graph not found: {}/{}",
+                payload.namespace, payload.graph_name
+            );
+            return Ok(());
         }
+        let compute_graph = compute_graph.unwrap();
+        let task = TaskBuilder::default()
+            .namespace(payload.namespace.clone())
+            .compute_graph_name(payload.graph_name.clone())
+            .compute_fn_name(compute_graph.start_fn.name.clone())
+            .input_data_object_id(payload.data_object_id.clone())
+            .build()?;
+        self.shared_state.create_tasks(vec![task], state_change_id).await?;
+        Ok(())
     }
 
     pub async fn allocate_tasks(
@@ -213,6 +191,9 @@ impl Scheduler {
         let id = format!("{:x}", hasher.finish());
         let task = internal_api::Task {
             id,
+            compute_graph_name: "".to_string(),
+            compute_fn_name: "".to_string(),
+            input_data_object_id: content.id.to_string(),
             extractor: extraction_policy.extractor.clone(),
             extraction_graph_name: extraction_policy.graph_name.clone(),
             extraction_policy_name: extraction_policy.name.clone(),

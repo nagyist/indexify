@@ -13,6 +13,7 @@ use std::{
 use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use indexify_internal_api::{
+    ComputeGraph,
     ContentMetadata,
     ContentMetadataId,
     ContentOffset,
@@ -113,9 +114,11 @@ pub enum StateMachineColumns {
     Executors,                          //  ExecutorId -> Executor Metadata
     Tasks,                              //  TaskId -> Task
     GarbageCollectionTasks,             //  GCTaskId -> GCTask
+    ComputeGraphs,                      //  NS_<CG NAME>_ID
+    IngestedDataObjects,                //  NS_<CG_NAME>_ID
+    DataObjects,                        //  NS_<CG_NAME>_<CF_NAME>_ID
     TaskAssignments,                    //  ExecutorId -> HashSet<TaskId>
     StateChanges,                       //  StateChangeId -> StateChange
-    IngestedObjects,                    //  NS_Graph_Id -> IngestedObject
     ContentTable,                       //  ContentId -> ContentMetadata
     ExtractionPolicies,                 //  ExtractionPolicyId -> ExtractionPolicy
     Extractors,                         //  ExtractorName -> ExtractorDescription
@@ -810,6 +813,24 @@ impl StateMachineStore {
             }
         }
         Ok(graph_links)
+    }
+
+    pub fn get_compute_graph(
+        &self,
+        namespace: &str,
+        cg_name: &str,
+    ) -> Result<Option<ComputeGraph>> {
+        let prefix = format!("{}_{}", namespace, cg_name);
+        let ch_bytes: Option<Vec<u8>> = get_from_cf(
+            &self.db.read().unwrap(),
+            StateMachineColumns::ComputeGraphs,
+            prefix.as_bytes(),
+        )?;
+        if let Some(ch_bytes) = ch_bytes {
+            let cg: ComputeGraph = JsonEncoder::decode(&ch_bytes)?;
+            return Ok(Some(cg));
+        }
+        Ok(None)
     }
 
     pub fn get_latest_version_of_content(

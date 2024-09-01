@@ -1269,6 +1269,9 @@ mod tests {
     fn make_task(task_id: &str, content_metadata: &ContentMetadata) -> indexify_internal_api::Task {
         indexify_internal_api::Task {
             id: task_id.into(),
+            compute_graph_name: "".to_string(),
+            compute_fn_name: "".to_string(),
+            input_data_object_id: content_metadata.id.id.clone(),
             namespace: content_metadata.namespace.clone(),
             extractor: "".to_string(),
             extraction_policy_name: "".to_string(),

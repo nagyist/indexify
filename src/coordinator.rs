@@ -509,11 +509,14 @@ impl Coordinator {
             );
 
             match change.change_type {
+                ChangeType::InvokeComputeGraph(payload) => {
+                    self.scheduler.invoke_compute_graph(&payload, change.id).await?
+                }
                 ChangeType::TaskCompleted {
                     ref root_content_id,
                 } => {}
                 ChangeType::ExecutorAdded => self.scheduler.redistribute_tasks(&change).await?,
-                ChangeType::NewContent => self.scheduler.create_new_tasks(change).await?,
+                ChangeType::NewContent => {},
                 ChangeType::ExecutorRemoved => {
                     self.scheduler.handle_executor_removed(change).await?
                 }

@@ -315,6 +315,9 @@ mod tests {
     ) -> internal_api::Task {
         internal_api::Task {
             id: id.to_string(),
+            compute_graph_name: "".to_string(),
+            compute_fn_name: "".to_string(),
+            input_data_object_id: content.id.id.clone(),
             extractor: extractor.to_string(),
             extraction_graph_name: extractor_graph_name.to_string(),
             extraction_policy_name: policy.to_string(),

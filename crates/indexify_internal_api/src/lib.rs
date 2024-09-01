@@ -13,6 +13,7 @@ use filter::LabelsFilter;
 use indexify_proto::indexify_coordinator::{self};
 use jsonschema::JSONSchema;
 use serde::{de::Deserializer, Deserialize, Serialize, Serializer};
+use serde_json::json;
 use serde_with::{serde_as, BytesOrString};
 use smart_default::SmartDefault;
 use strum::{Display, EnumString};
@@ -471,10 +472,14 @@ fn default_creation_time() -> SystemTime {
     UNIX_EPOCH
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema)]
+#[derive(Serialize, Debug, Deserialize, Clone, PartialEq, ToSchema, Builder)]
 #[schema(as = internal_api::Task)]
+#[builder(build_fn(skip))]
 pub struct Task {
     pub id: String,
+    pub compute_graph_name: String,
+    pub compute_fn_name: String,
+    pub input_data_object_id: String,
     pub extractor: String,
     pub extraction_policy_name: String,
     pub extraction_graph_name: String,
@@ -502,6 +507,47 @@ impl Display for Task {
             "Task(id: {}, extractor: {}, extraction_policy_id: {}, extraction_graph_name: {}, namespace: {}, content_id: {}, outcome: {:?})",
             self.id, self.extractor, self.extraction_policy_name, self.extraction_graph_name, self.namespace, self.content_metadata.id.id, self.outcome
         )
+    }
+}
+
+impl TaskBuilder {
+    pub fn build(&self) -> Result<Task> {
+        let namespace = self.namespace.clone().ok_or(anyhow!("namespace is not present"))?;
+        let cg_name = self
+            .compute_graph_name
+            .clone()
+            .ok_or(anyhow!("compute graph name is not present"))?;
+        let compute_fn_name = self
+            .compute_fn_name
+            .clone()
+            .ok_or(anyhow!("compute fn name is not present"))?;
+        let input_data_object_id = self
+            .input_data_object_id
+            .clone()
+            .ok_or(anyhow!("input data object id is not present"))?;
+        let mut hasher = DefaultHasher::new();
+        cg_name.hash(&mut hasher);
+        compute_fn_name.hash(&mut hasher);
+        input_data_object_id.hash(&mut hasher);
+        namespace.hash(&mut hasher);
+        let id = format!("{:x}", hasher.finish());
+        let task = Task {
+            id,
+            compute_graph_name: cg_name,
+            compute_fn_name,
+            input_data_object_id,
+            extractor: "".to_string(),
+            extraction_policy_name: "".to_string(),
+            extraction_graph_name: "".to_string(),
+            output_index_table_mapping: HashMap::new(),
+            namespace,
+            content_metadata: ContentMetadata::default(),
+            input_params: json!(null),
+            outcome: TaskOutcome::Unknown,
+            index_tables: vec![],
+            creation_time: default_creation_time(),
+        };
+        Ok(task)
     }
 }
 
@@ -1184,17 +1230,7 @@ pub struct ExecutorMetadata {
     pub addr: String,
     pub extractors: Vec<ExtractorDescription>,
     #[serde(default)]
-    pub os_type: String,
-    #[serde(default)]
-    pub os_version: VersionInfo,
-    #[serde(default)]
-    pub python_version: VersionInfo,
-    #[serde(default)]
-    pub memory: byte_unit::Byte,
-    #[serde(default)]
-    pub num_cpus: u32,
-    #[serde(default)]
-    pub gpu_memory: Vec<byte_unit::Byte>,
+    pub labels: HashMap<String, serde_json::Value>,
 }
 
 impl From<indexify_coordinator::VersionInfo> for VersionInfo {
@@ -1209,6 +1245,7 @@ impl From<indexify_coordinator::VersionInfo> for VersionInfo {
 
 impl From<indexify_coordinator::RegisterExecutorRequest> for ExecutorMetadata {
     fn from(value: indexify_coordinator::RegisterExecutorRequest) -> Self {
+        let labels = HashMap::new();
         Self {
             id: value.executor_id,
             addr: value.addr,
@@ -1217,12 +1254,7 @@ impl From<indexify_coordinator::RegisterExecutorRequest> for ExecutorMetadata {
                 .into_iter()
                 .map(|extractor| extractor.into())
                 .collect(),
-            os_type: value.os_type,
-            os_version: value.os_version.unwrap_or_default().into(),
-            python_version: value.python_version.unwrap_or_default().into(),
-            memory: value.memory.into(),
-            num_cpus: value.num_cpus,
-            gpu_memory: value.gpu_memory.into_iter().map(Into::into).collect(),
+            labels,
         }
     }
 }
@@ -1269,7 +1301,15 @@ impl TaskResult {
 pub type NamespaceName = String;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct InvokeComputeGraphPayload {
+    pub namespace: NamespaceName,
+    pub graph_name: String,
+    pub data_object_id: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum ChangeType {
+    InvokeComputeGraph(InvokeComputeGraphPayload),
     NewContent,
     ExecutorAdded,
     ExecutorRemoved,
@@ -1279,6 +1319,9 @@ pub enum ChangeType {
 impl fmt::Display for ChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ChangeType::InvokeComputeGraph(payload) => {
+                write!(f, "Invoke Compute Graph {}", payload.graph_name)
+            }
             ChangeType::NewContent => write!(f, "NewContent"),
             ChangeType::ExecutorAdded => write!(f, "ExecutorAdded"),
             ChangeType::ExecutorRemoved => write!(f, "ExecutorRemoved"),
@@ -1502,43 +1545,42 @@ impl StructuredDataSchema {
     }
 }
 
-//#[cfg(test)]
-//mod test {
-//    use super::*;
-//
-//    #[test]
-//    fn test_structured_data_schema() {
-//        let schema = StructuredDataSchema::new("test", "test-namespace");
-//        let other = HashMap::from([
-//            (
-//                "bounding_box".to_string(),
-//                SchemaColumn {
-//                    column_type: SchemaColumnType::Object,
-//                    comment: Some("Bounding box of the object".to_string()),
-//                },
-//            ),
-//            ("object_class".to_string(), SchemaColumnType::Text.into()),
-//        ]);
-//        let result = schema.merge(other).unwrap();
-//        let other1 = HashMap::from([
-//            ("a".to_string(), SchemaColumnType::Int.into()),
-//            ("b".to_string(), SchemaColumnType::Text.into()),
-//        ]);
-//        let result1 = result.merge(other1).unwrap();
-//        assert_eq!(result1.id, "test");
-//        assert_eq!(result1.namespace, "test-namespace");
-//        assert_eq!(result1.columns.len(), 4);
-//
-//        let ddl = result1.to_ddl();
-//        assert_eq!(
-//            ddl,
-//            "CREATE TABLE IF NOT EXISTS \"test\" (\
-//                \"content_id\" TEXT NULL, \
-//                \"a\" INT NULL, \
-//                \"b\" TEXT NULL, \
-//                \"bounding_box\" JSON NULL COMMENT 'Bounding box of the
-// object', \                \"object_class\" TEXT NULL\
-//            );"
-//        );
-//    }
-//}
+#[derive(Debug, Clone, Serialize, Deserialize, Builder, PartialEq, Eq)]
+pub struct DynamicEdgeRouter {
+    pub name: String,
+    pub description: String,
+    pub source_fn: String,
+    pub target_functions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ComputeFn {
+    pub name: String,
+    pub description: String,
+    pub placement_constraints: LabelsFilter,
+    pub function_name: String,
+    pub edges: Vec<String>,
+}
+
+impl ComputeFn {
+    pub fn matches_executor(&self, executor: &ExecutorMetadata) -> bool {
+        self.placement_constraints.matches(&executor.labels)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum GraphEdge {
+    Router(DynamicEdgeRouter),
+    Compute(ComputeFn),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ComputeGraph {
+    pub namespace: String,
+    pub graph_name: String,
+    pub code_path: String,
+    pub create_at: u64,
+    pub tombstoned: bool,
+    pub start_fn: ComputeFn,
+    pub edges: HashMap<String, Vec<GraphEdge>>,
+}
