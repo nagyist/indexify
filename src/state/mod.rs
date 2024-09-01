@@ -66,7 +66,6 @@ use self::{
     store::{requests::CreateOrUpdateContentEntry, StateMachineColumns, StateMachineStore},
 };
 use crate::{
-    coordinator_filters::matches_mime_type,
     garbage_collector::GarbageCollector,
     metrics::{
         coordinator::Metrics,
@@ -557,13 +556,6 @@ impl App {
                 continue;
             }
             let extractor = self.extractor_with_name(&extraction_policy.extractor)?;
-            if !matches_mime_type(&extractor.input_mime_types, &content_metadata.content_type) {
-                info!(
-                    "content {} does not match extractor {}",
-                    content_metadata.id.id, extraction_policy.extractor
-                );
-                continue;
-            }
             matched_policies.push(extraction_policy);
         }
 

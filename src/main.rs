@@ -12,7 +12,6 @@ use opentelemetry_sdk::{
 use rustls::crypto::CryptoProvider;
 use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, Layer};
 
-pub mod coordinator_filters;
 pub mod coordinator_service;
 pub mod metrics;
 pub mod server;
