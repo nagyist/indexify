@@ -14,20 +14,20 @@ use rand::seq::IteratorRandom;
 use tokio::sync::RwLock;
 
 pub struct GarbageCollector {
-    pub ingestion_servers: RwLock<HashSet<String>>,
+    pub coordinators: RwLock<HashSet<String>>,
     pub gc_tasks: RwLock<HashMap<String, GarbageCollectionTask>>, //  gc task id -> gc task
 }
 
 impl GarbageCollector {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            ingestion_servers: RwLock::new(HashSet::new()),
+            coordinators: RwLock::new(HashSet::new()),
             gc_tasks: RwLock::new(HashMap::new()),
         })
     }
 
     async fn choose_server(&self) -> Option<String> {
-        let servers = self.ingestion_servers.read().await;
+        let servers = self.coordinators.read().await;
         let mut rng = rand::thread_rng();
         servers.iter().choose(&mut rng).cloned()
     }
@@ -39,9 +39,9 @@ impl GarbageCollector {
         }
     }
 
-    pub async fn register_ingestion_server(&self, server_id: &str) {
+    pub async fn add_server(&self, server_id: &str) {
         let result = self
-            .ingestion_servers
+            .coordinators
             .write()
             .await
             .insert(server_id.to_string());
@@ -58,8 +58,8 @@ impl GarbageCollector {
         }
     }
 
-    pub async fn remove_ingestion_server(&self, server_id: &str) {
-        self.ingestion_servers.write().await.remove(server_id);
+    pub async fn remove_server(&self, server_id: &str) {
+        self.coordinators.write().await.remove(server_id);
 
         //  get all tasks that were assigned to this server and try to re-assign them
         let mut tasks_guard = self.gc_tasks.write().await;
@@ -69,25 +69,6 @@ impl GarbageCollector {
                 task.assigned_to = self.choose_server().await;
             }
         }
-    }
-
-    pub async fn create_delete_index_task(&self, graph: &ExtractionGraph) -> GarbageCollectionTask {
-        let output_tables: HashSet<_> = graph
-            .extraction_policies
-            .iter()
-            .flat_map(|p| p.output_table_mapping.values())
-            .cloned()
-            .collect();
-        let mut gc_task = GarbageCollectionTask::new(
-            &graph.namespace,
-            ContentMetadata::default(),
-            output_tables,
-            ServerTaskType::DropIndexes,
-        );
-        gc_task.assigned_to = self.choose_server().await;
-        let mut tasks_guard = self.gc_tasks.write().await;
-        tasks_guard.insert(gc_task.id.clone(), gc_task.clone());
-        gc_task
     }
 
     pub async fn create_gc_tasks(
@@ -168,7 +149,7 @@ mod tests {
     async fn test_new_task_deletion_event_allocation() -> Result<(), anyhow::Error> {
         let gc = GarbageCollector::new();
         let server_id = "server1".to_string();
-        gc.register_ingestion_server(&server_id).await;
+        gc.add_server(&server_id).await;
 
         //  Create a task
         let (content_metadata, outputs, _) = create_data_for_task(1);
@@ -191,7 +172,7 @@ mod tests {
     #[tracing_test::traced_test]
     async fn test_ingestion_server_removal_and_task_reassignment() -> Result<(), anyhow::Error> {
         let gc = GarbageCollector::new();
-        gc.register_ingestion_server("server1").await;
+        gc.add_server("server1").await;
 
         // Assign a task to server1
         let (content_metadata, outputs, _) = create_data_for_task(1);
@@ -212,7 +193,7 @@ mod tests {
         }
 
         // Remove server1
-        gc.remove_ingestion_server("server1").await;
+        gc.remove_server("server1").await;
         {
             let tasks_guard = gc.gc_tasks.read().await;
             assert_eq!(
@@ -225,7 +206,7 @@ mod tests {
         }
 
         //  Register server 2 and check that the tasks have been assigned to this
-        gc.register_ingestion_server("server2").await;
+        gc.add_server("server2").await;
         {
             let tasks_guard = gc.gc_tasks.read().await;
             assert_eq!(
@@ -260,7 +241,7 @@ mod tests {
         }
 
         //  add a new server and all tasks should be assigned to it
-        gc.register_ingestion_server(server_id).await;
+        gc.add_server(server_id).await;
         {
             let stored_tasks = gc.gc_tasks.read().await;
             for task in stored_tasks.values() {
@@ -278,7 +259,7 @@ mod tests {
         let gc = GarbageCollector::new();
 
         //  Create a couple of tasks
-        gc.register_ingestion_server(server_id).await;
+        gc.add_server(server_id).await;
         let (content_metadata, outputs, _) = create_data_for_task(3);
         let tasks = gc
             .create_gc_tasks(content_metadata, outputs, ServerTaskType::Delete)

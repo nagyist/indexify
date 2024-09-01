@@ -89,19 +89,8 @@ impl Coordinator {
         namespace: String,
         extraction_graph: String,
     ) -> Result<()> {
-        let graph = self
-            .shared_state
-            .get_extraction_graphs_by_name(&namespace, &[&extraction_graph])?;
-        let graph = match graph.first() {
-            Some(Some(graph)) => graph,
-            _ => return Err(anyhow!("extraction graph not found")),
-        };
-        let gc_task = self
-            .garbage_collector
-            .create_delete_index_task(graph)
-            .await;
         self.shared_state
-            .delete_extraction_graph(namespace, extraction_graph, gc_task)
+            .delete_extraction_graph(namespace, extraction_graph)
             .await
     }
 
@@ -411,7 +400,7 @@ impl Coordinator {
             return Ok(());
         }
         self.garbage_collector
-            .register_ingestion_server(ingestion_server_id)
+            .add_server(ingestion_server_id)
             .await;
         Ok(())
     }
@@ -432,7 +421,7 @@ impl Coordinator {
             return Ok(());
         }
         self.garbage_collector
-            .remove_ingestion_server(ingestion_server_id)
+            .remove_server(ingestion_server_id)
             .await;
         Ok(())
     }

@@ -482,7 +482,6 @@ impl App {
         &self,
         namespace: String,
         extraction_graph: String,
-        gc_task: GarbageCollectionTask,
     ) -> Result<()> {
         let graph = self
             .state_machine
@@ -498,7 +497,6 @@ impl App {
             payload: RequestPayload::DeleteExtractionGraphByName {
                 extraction_graph: extraction_graph.clone(),
                 namespace,
-                gc_task,
             },
             new_state_changes: vec![StateChange::new(
                 extraction_graph,
@@ -783,8 +781,6 @@ impl App {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateExtractionGraph {
                 extraction_graph,
-                structured_data_schema,
-                indexes,
             },
             new_state_changes: vec![],
             state_changes_processed: vec![],

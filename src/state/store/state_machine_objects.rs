@@ -679,7 +679,6 @@ impl IndexifyState {
         db: &OptimisticTransactionDB,
         txn: &Transaction<OptimisticTransactionDB>,
         extraction_graph: &ExtractionGraph,
-        structured_data_schema: &StructuredDataSchema,
     ) -> Result<(), StateMachineError> {
         let serialized_eg = JsonEncoder::encode(extraction_graph)?;
         txn.put_cf(
@@ -1313,7 +1312,6 @@ impl IndexifyState {
     fn update_extraction_graph_reverse_idx(
         &self,
         extraction_graph: &ExtractionGraph,
-        structured_data_schema: StructuredDataSchema,
     ) {
         for ep in &extraction_graph.extraction_policies {
             let key = ExtractionGraphNode {
@@ -1328,10 +1326,6 @@ impl IndexifyState {
                 .or_default()
                 .insert(ep.id.clone());
         }
-        self.schemas_by_namespace.insert(
-            &structured_data_schema.namespace,
-            &structured_data_schema.id,
-        );
     }
 
     fn add_graph_to_content(
@@ -1403,9 +1397,7 @@ impl IndexifyState {
             RequestPayload::DeleteExtractionGraphByName {
                 extraction_graph,
                 namespace,
-                gc_task,
             } => {
-                self.set_garbage_collection_tasks(db, &txn, &[gc_task])?;
                 self.delete_extraction_graph_by_name(db, &txn, extraction_graph, namespace)?;
             }
             RequestPayload::AddGraphToContent {
@@ -1565,10 +1557,8 @@ impl IndexifyState {
             }
             RequestPayload::CreateExtractionGraph {
                 extraction_graph,
-                structured_data_schema,
-                indexes,
             } => {
-                self.set_extraction_graph(db, &txn, extraction_graph, structured_data_schema)?;
+                self.set_extraction_graph(db, &txn, extraction_graph)?;
             }
             RequestPayload::CreateExtractionGraphLink {
                 extraction_graph_link,
@@ -1700,14 +1690,8 @@ impl IndexifyState {
             }
             RequestPayload::CreateExtractionGraph {
                 extraction_graph,
-                structured_data_schema,
-                indexes,
             } => {
-                self.update_extraction_graph_reverse_idx(&extraction_graph, structured_data_schema);
-                for index in indexes {
-                    self.namespace_index_table
-                        .insert(&index.namespace, &index.id);
-                }
+                self.update_extraction_graph_reverse_idx(&extraction_graph);
                 Ok(())
             }
             RequestPayload::UpdateTask {

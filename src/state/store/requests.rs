@@ -61,8 +61,6 @@ pub enum RequestPayload {
     },
     CreateExtractionGraph {
         extraction_graph: internal_api::ExtractionGraph,
-        structured_data_schema: internal_api::StructuredDataSchema,
-        indexes: Vec<internal_api::Index>,
     },
     DeleteExtractionGraph {
         graph_id: String,
@@ -71,7 +69,6 @@ pub enum RequestPayload {
     DeleteExtractionGraphByName {
         extraction_graph: String,
         namespace: String,
-        gc_task: GarbageCollectionTask,
     },
     CreateExtractionGraphLink {
         extraction_graph_link: ExtractionGraphLink,

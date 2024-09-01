@@ -768,13 +768,6 @@ impl StateMachineStore {
                     } => {
                         self.send_gc_tasks(vec![gc_task]);
                     }
-                    RequestPayload::DeleteExtractionGraphByName {
-                        extraction_graph: _,
-                        namespace: _,
-                        gc_task,
-                    } => {
-                        self.send_gc_tasks(vec![gc_task]);
-                    }
                     _ => {}
                 }
             }
