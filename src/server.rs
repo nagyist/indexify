@@ -13,14 +13,12 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
-    Extension,
     Json,
     Router,
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use axum_tracing_opentelemetry::middleware::OtelAxumLayer;
-use axum_typed_websockets::WebSocketUpgrade;
 use hyper::{header::CONTENT_TYPE, Method};
 use indexify_internal_api as internal_api;
 use indexify_proto::indexify_coordinator::{
@@ -1092,7 +1090,7 @@ async fn upload_file_inner(
     if let Some(write_result) = write_result {
         let content_mime = labels.get("mime_type").and_then(|v| v.as_str());
         let content_mime = content_mime
-            .map(|v| Mime::from_str(v))
+            .map(Mime::from_str)
             .transpose()
             .map_err(|e| {
                 IndexifyAPIError::new(

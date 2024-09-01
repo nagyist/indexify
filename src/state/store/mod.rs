@@ -289,10 +289,8 @@ where
             }
             lookup_keys.push((data_cf, key_reference(&key)?));
             keys.push(key);
-            if lookup_keys.len() >= limit {
-                if get_entries(mem::take(&mut lookup_keys), mem::take(&mut keys))? {
-                    break;
-                }
+            if lookup_keys.len() >= limit && get_entries(mem::take(&mut lookup_keys), mem::take(&mut keys))? {
+                break;
             }
         } else {
             return Err(anyhow!("error reading db"));
@@ -1817,7 +1815,7 @@ fn convert_v1_store(db_path: PathBuf, v1_db_path: PathBuf) -> Result<(), Storage
         let entry: Entry<V1TypeConfig> = JsonEncoder::decode(&value).unwrap();
 
         if let EntryPayload::Normal(req) = entry.payload {
-            let log = convert_v1_log(req, &v1_db).map_err(|e| StorageIOError::read_logs(e))?;
+            let log = convert_v1_log(req, &v1_db).map_err(StorageIOError::read_logs)?;
             let updated_entry: typ::Entry = Entry {
                 log_id: entry.log_id,
                 payload: EntryPayload::Normal(log),

@@ -120,8 +120,8 @@ pub fn init_graph_index(db: &OptimisticTransactionDB) -> Result<(), StorageError
         let content: ContentMetadata =
             JsonEncoder::decode(&value).map_err(|e| StorageIOError::read_state_machine(&e))?;
         for graph in content.extraction_graph_names.iter() {
-            let key = content.graph_key(&graph);
-            db.put_cf(StateMachineColumns::GraphContentIndex.cf(db), key, &[])
+            let key = content.graph_key(graph);
+            db.put_cf(StateMachineColumns::GraphContentIndex.cf(db), key, [])
                 .map_err(|e| StorageIOError::write_state_machine(&e))?;
         }
     }

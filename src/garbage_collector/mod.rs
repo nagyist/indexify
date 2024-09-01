@@ -75,8 +75,7 @@ impl GarbageCollector {
         let output_tables: HashSet<_> = graph
             .extraction_policies
             .iter()
-            .map(|p| p.output_table_mapping.values())
-            .flatten()
+            .flat_map(|p| p.output_table_mapping.values())
             .cloned()
             .collect();
         let mut gc_task = GarbageCollectionTask::new(

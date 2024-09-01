@@ -95,7 +95,7 @@ pub fn convert_v2_task(
         extraction_graph_name: task.extraction_graph_name,
         output_index_table_mapping: task.output_index_table_mapping,
         namespace: task.namespace,
-        content_metadata: task.content_metadata.into(),
+        content_metadata: task.content_metadata,
         input_params: task.input_params,
         outcome: task.outcome,
         index_tables: task.index_tables,

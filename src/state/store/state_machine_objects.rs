@@ -687,7 +687,7 @@ impl IndexifyState {
         let serialized_eg = JsonEncoder::encode(extraction_graph)?;
         txn.put_cf(
             &StateMachineColumns::ExtractionGraphs.cf(db),
-            &extraction_graph.key(),
+            extraction_graph.key(),
             serialized_eg,
         )
         .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
@@ -852,7 +852,7 @@ impl IndexifyState {
         txn.put_cf(
             StateMachineColumns::TaskAnalytics.cf(db),
             key,
-            &serialized_task_analytics,
+            serialized_task_analytics,
         )
         .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         Ok(())
@@ -1006,7 +1006,7 @@ impl IndexifyState {
                     if !content.extraction_graph_names.contains(graph) {
                         txn.delete_cf(
                             StateMachineColumns::GraphContentIndex.cf(db),
-                            existing_content.graph_key(&graph),
+                            existing_content.graph_key(graph),
                         )
                         .map_err(|e| {
                             StateMachineError::DatabaseError(format!(
@@ -1020,8 +1020,8 @@ impl IndexifyState {
             for graph in content.extraction_graph_names.iter() {
                 txn.put_cf(
                     StateMachineColumns::GraphContentIndex.cf(db),
-                    content.graph_key(&graph),
-                    &[],
+                    content.graph_key(graph),
+                    [],
                 )
                 .map_err(|e| {
                     StateMachineError::DatabaseError(format!("error writing content: {}", e))
@@ -1061,8 +1061,8 @@ impl IndexifyState {
                 for graph in content.extraction_graph_names.iter() {
                     txn.put_cf(
                         StateMachineColumns::GraphContentIndex.cf(db),
-                        content.graph_key(&graph),
-                        &[],
+                        content.graph_key(graph),
+                        [],
                     )
                     .map_err(|e| {
                         StateMachineError::DatabaseError(format!("error writing content: {}", e))
@@ -1093,7 +1093,7 @@ impl IndexifyState {
                 for graph in content.extraction_graph_names.iter() {
                     txn.delete_cf(
                         StateMachineColumns::GraphContentIndex.cf(db),
-                        content.graph_key(&graph),
+                        content.graph_key(graph),
                     )
                     .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
                 }
@@ -1531,7 +1531,7 @@ impl IndexifyState {
             }
             RequestPayload::RegisterExecutor(executor) => {
                 //  Insert the executor
-                self.set_executor(db, &txn, &executor)?;
+                self.set_executor(db, &txn, executor)?;
 
                 //  Insert the associated extractors
                 self.set_extractors(db, &txn, &executor.extractors)?;
@@ -1761,16 +1761,13 @@ impl IndexifyState {
                     self.unfinished_tasks_by_extractor
                         .remove(&task.extractor, &task.id);
                     if let Some(ref executor_id) = executor_id {
-                        self.unfinished_tasks_by_executor
+                        if let Some(tasks) = self.unfinished_tasks_by_executor
                             .write()
                             .unwrap()
-                            .get_mut(executor_id)
-                            .map(|tasks| {
-                                tasks.remove(&UnfinishedTask {
+                            .get_mut(executor_id) { tasks.remove(&UnfinishedTask {
                                     id: task.id.clone(),
                                     creation_time: task.creation_time,
-                                })
-                            });
+                                }) }
                     }
                 }
                 Ok(())

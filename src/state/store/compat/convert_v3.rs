@@ -31,9 +31,9 @@ pub fn convert_v3(
     )?;
 
     convert_column_value(db, StateMachineColumns::Tasks.cf(db), |task: v3::Task| {
-        Ok(convert_v2_task(task, db).map_err(|e| StorageError::IO {
+        convert_v2_task(task, db).map_err(|e| StorageError::IO {
             source: StorageIOError::read_state_machine(e),
-        })?)
+        })
     })?;
 
     let cf = log_db

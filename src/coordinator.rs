@@ -99,7 +99,7 @@ impl Coordinator {
         };
         let gc_task = self
             .garbage_collector
-            .create_delete_index_task(&graph)
+            .create_delete_index_task(graph)
             .await;
         self.shared_state
             .delete_extraction_graph(namespace, extraction_graph, gc_task)

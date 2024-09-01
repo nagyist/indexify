@@ -2,7 +2,6 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     fmt,
     hash::{Hash, Hasher},
-    str::FromStr,
     sync::Arc,
     time::SystemTime,
 };
@@ -12,7 +11,7 @@ use bytes::Bytes;
 use filter::LabelsFilter;
 use futures::{Stream, StreamExt};
 use indexify_internal_api::{self as internal_api};
-use indexify_proto::indexify_coordinator::{self, CreateContentStatus, ListActiveContentsRequest};
+use indexify_proto::indexify_coordinator::{self, ListActiveContentsRequest};
 use mime::Mime;
 use nanoid::nanoid;
 use serde_json::json;
