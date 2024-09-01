@@ -89,7 +89,6 @@ pub struct NamespaceEndpointState {
             extraction_graph_links,
             upload_file,
             list_tasks,
-            get_content_tree_metadata,
             download_content,
             extraction_graph_analytics,
         ),
@@ -201,12 +200,6 @@ impl Server {
             )
             .route("/namespaces/:namespace/content/:content_id/download",
                 get(download_content).with_state(namespace_endpoint_state.clone()))
-            .route("/namespaces/:namespace/extraction_graphs/:extraction_graph/content/:content_id/extraction_policies/:extraction_policy",
-                get(get_content_tree_metadata).with_state(namespace_endpoint_state.clone()))
-            .route(
-                "/namespaces/:namespace/extraction_graphs/:graph/links",
-                post(link_extraction_graphs).with_state(namespace_endpoint_state.clone()),
-            )
             .route(
                 "/namespaces/:namespace/extraction_graphs/:graph/links",
                 get(extraction_graph_links).with_state(namespace_endpoint_state.clone()),
@@ -641,43 +634,6 @@ async fn wait_content_extraction(
         .wait_content_extraction(&content_id)
         .await
         .map_err(IndexifyAPIError::internal_error)
-}
-
-/// Get extracted content metadata for a specific content id and extraction
-/// graph
-#[tracing::instrument]
-#[utoipa::path(
-    get,
-    path = "/namespaces/:namespace/extraction_graphs/{extraction_graph}/content/{content_id}/extraction_policies/{extraction_policy}",
-    tag = "retrieval",
-    responses(
-        (status = 200, description = "Gets a content tree rooted at a specific content id in the namespace"),
-        (status = BAD_REQUEST, description = "Unable to read content tree")
-    )
-)]
-#[axum::debug_handler]
-async fn get_content_tree_metadata(
-    Path((namespace, extraction_graph, content_id, extraction_policy)): Path<(
-        String,
-        String,
-        String,
-        String,
-    )>,
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<GetContentTreeMetadataResponse>, IndexifyAPIError> {
-    let content_tree_metadata = state
-        .data_manager
-        .get_content_tree_metadata(
-            &namespace,
-            &content_id,
-            &extraction_graph,
-            &extraction_policy,
-        )
-        .await
-        .map_err(IndexifyAPIError::internal_error)?;
-    Ok(Json(GetContentTreeMetadataResponse {
-        content_tree_metadata,
-    }))
 }
 
 /// Download content with a given id

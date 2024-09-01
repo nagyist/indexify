@@ -416,15 +416,6 @@ impl Coordinator {
         Ok((task, root_content))
     }
 
-    pub async fn get_content_tree_metadata(
-        &self,
-        content_id: &str,
-    ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
-        let content_tree = self.shared_state.get_content_tree_metadata(content_id)?;
-        let content_tree = self.internal_content_metadata_to_external(content_tree)?;
-        Ok(content_tree)
-    }
-
     pub fn get_extractor(
         &self,
         extractor_name: &str,

@@ -422,69 +422,12 @@ impl App {
         Ok(())
     }
 
-    /// This method uses the content id to fetch the associated extraction
-    /// policies based on certain filters and checks which policies can be
-    /// applied to the content It's the mirror equivalent to
-    /// content_matching_policy
-    pub async fn match_extraction_policies_for_content(
-        &self,
-        content_metadata: &internal_api::ContentMetadata,
-        graph_names: &[String],
-    ) -> Result<Vec<ExtractionPolicy>> {
-        if content_metadata.tombstoned {
-            return Ok(Vec::new());
-        }
-
-        let mut policy_ids = Vec::new();
-        for graph_name in graph_names {
-            let graph_links = self
-                .state_machine
-                .data
-                .indexify_state
-                .graph_links
-                .read()
-                .unwrap();
-            let key = ExtractionGraphNode {
-                namespace: content_metadata.namespace.clone(),
-                graph_name: graph_name.clone(),
-                source: content_metadata.source.clone(),
-            };
-            if let Some(graph_links) = graph_links.get(&key) {
-                policy_ids.extend(graph_links.iter().cloned());
-            }
-        }
-        if policy_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        let all_extraction_policies = self
-            .get_extraction_policies_from_ids(policy_ids.into_iter().collect())
-            .await?;
-        let mut matched_policies = Vec::new();
-        for extraction_policy in all_extraction_policies {
-            if !extraction_policy.filter.matches(&content_metadata.labels) {
-                continue;
-            }
-            let extractor = self.extractor_with_name(&extraction_policy.extractor)?;
-            matched_policies.push(extraction_policy);
-        }
-
-        Ok(matched_policies)
-    }
-
     pub async fn get_extraction_policy(&self, id: &str) -> Result<ExtractionPolicy> {
         let extraction_policy = self
             .state_machine
             .get_from_cf::<ExtractionPolicy, _>(StateMachineColumns::ExtractionPolicies, id)?
             .ok_or_else(|| anyhow::anyhow!("Extraction policy with id {} not found", id))?;
         Ok(extraction_policy)
-    }
-
-    pub async fn get_extraction_policies_from_ids(
-        &self,
-        extraction_policy_ids: HashSet<String>,
-    ) -> Result<Vec<ExtractionPolicy>> {
-        self.state_machine
-            .get_extraction_policies_from_ids(extraction_policy_ids)
     }
 
     pub async fn unassigned_tasks(&self) -> Result<Vec<internal_api::Task>> {
@@ -506,22 +449,6 @@ impl App {
 
     pub async fn task_assignments(&self) -> Result<HashMap<ExecutorId, TaskId>> {
         self.state_machine.get_all_task_assignments().await
-    }
-
-    pub async fn get_executors_for_extractor(
-        &self,
-        extractor: &str,
-    ) -> Result<Vec<ExecutorMetadata>> {
-        let executor_ids = self
-            .state_machine
-            .get_extractor_executors_table()
-            .await
-            .get(extractor)
-            .cloned()
-            .unwrap_or(HashSet::new());
-        self.state_machine
-            .get_executors_from_ids(executor_ids)
-            .await
     }
 
     pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
@@ -846,21 +773,6 @@ impl App {
         content_ids: Vec<String>,
     ) -> Result<Vec<internal_api::ContentMetadata>> {
         self.state_machine.get_content_from_ids(content_ids).await
-    }
-
-    pub fn get_content_tree_metadata(
-        &self,
-        content_id: &str,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.state_machine.get_content_tree_metadata(content_id)
-    }
-
-    pub fn get_content_tree_metadata_with_version(
-        &self,
-        content_id: &ContentMetadataId,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.state_machine
-            .get_content_tree_metadata_with_version(content_id)
     }
 
     pub async fn create_tasks(
@@ -1293,10 +1205,6 @@ mod tests {
 
         let executor = node.get_executor_by_id(executor_id).await?;
         assert_eq!(executor.id, executor_id);
-
-        let executors = node.get_executors_for_extractor(&extractor.name).await?;
-        assert_eq!(executors.len(), 1);
-        assert_eq!(executors.first().unwrap().id, executor_id);
 
         //  Read the extractors
         let extractors = node.list_extractors().await?;

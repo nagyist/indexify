@@ -7,8 +7,6 @@ package indexify_coordinator;
 service CoordinatorService {
     rpc GetContentMetadata(GetContentMetadataRequest) returns (GetContentMetadataResponse) {}
 
-    rpc GetContentTreeMetadata(GetContentTreeMetadataRequest) returns (GetContentTreeMetadataResponse) {}
-
     rpc ListContent(ListContentRequest) returns (ListContentResponse) {}
 
     rpc CreateExtractionGraph(CreateExtractionGraphRequest) returns (CreateExtractionGraphResponse) {}
@@ -73,17 +71,6 @@ message GetContentMetadataRequest {
 }
 
 message GetContentMetadataResponse {
-    repeated ContentMetadata content_list = 1;
-}
-
-message GetContentTreeMetadataRequest {
-    string namespace = 1;
-    string content_id = 2;
-    string extraction_graph_name = 3;
-    string extraction_policy = 4;
-}
-
-message GetContentTreeMetadataResponse {
     repeated ContentMetadata content_list = 1;
 }
 

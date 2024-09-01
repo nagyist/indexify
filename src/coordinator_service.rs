@@ -39,7 +39,6 @@ use indexify_proto::indexify_coordinator::{
     GcTaskAcknowledgement,
     GetAllTaskAssignmentRequest,
     GetContentMetadataRequest,
-    GetContentTreeMetadataRequest,
     GetIngestionInfoRequest,
     GetIngestionInfoResponse,
     GetRaftMetricsSnapshotRequest,
@@ -712,23 +711,6 @@ impl CoordinatorService for CoordinatorServiceServer {
             root_content,
             extraction_policy: Some(proto_extraction_policy),
         }))
-    }
-
-    async fn get_content_tree_metadata(
-        &self,
-        req: Request<GetContentTreeMetadataRequest>,
-    ) -> Result<Response<indexify_coordinator::GetContentTreeMetadataResponse>, Status> {
-        let req = req.into_inner();
-        let content_tree_metadata = self
-            .coordinator
-            .get_content_tree_metadata(&req.content_id)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(Response::new(
-            indexify_coordinator::GetContentTreeMetadataResponse {
-                content_list: content_tree_metadata,
-            },
-        ))
     }
 
     async fn list_state_changes(

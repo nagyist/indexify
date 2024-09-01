@@ -907,33 +907,6 @@ impl StateMachineStore {
             .map_err(|e| anyhow::anyhow!("Failed to get task assignments: {}", e))
     }
 
-    pub fn get_extraction_policies_from_ids(
-        &self,
-        extraction_policy_ids: HashSet<String>,
-    ) -> Result<Vec<ExtractionPolicy>> {
-        self.data
-            .indexify_state
-            .get_extraction_policies_from_ids(extraction_policy_ids, &self.db.read().unwrap())
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    pub fn get_extraction_policy_by_names(
-        &self,
-        namespace: &str,
-        graph_name: &str,
-        policy_names: &HashSet<String>,
-    ) -> Result<Vec<Option<ExtractionPolicy>>> {
-        self.data
-            .indexify_state
-            .get_extraction_policy_by_names(
-                namespace,
-                graph_name,
-                policy_names,
-                &self.db.read().unwrap(),
-            )
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
     pub async fn get_executors_from_ids(
         &self,
         executor_ids: HashSet<String>,
@@ -974,32 +947,6 @@ impl StateMachineStore {
         )
     }
 
-    pub async fn get_content_by_id_and_version(
-        &self,
-        content_id: &ContentMetadataId,
-    ) -> Result<Option<ContentMetadata>> {
-        self.data
-            .indexify_state
-            .get_content_by_id_and_version(&self.db.read().unwrap(), content_id)
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    pub fn get_content_tree_metadata(&self, content_id: &str) -> Result<Vec<ContentMetadata>> {
-        self.data
-            .indexify_state
-            .get_content_tree_metadata(content_id, &self.db.read().unwrap())
-            .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    pub fn get_content_tree_metadata_with_version(
-        &self,
-        content_id: &ContentMetadataId,
-    ) -> Result<Vec<ContentMetadata>> {
-        self.data
-            .indexify_state
-            .get_content_tree_metadata_with_version(content_id, &self.db.read().unwrap())
-            .map_err(|e| anyhow::anyhow!(e))
-    }
 
     pub async fn namespace_exists(&self, namespace: &str) -> Result<bool> {
         self.data

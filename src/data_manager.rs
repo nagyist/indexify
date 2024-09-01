@@ -273,30 +273,6 @@ impl DataManager {
         Ok(content_list)
     }
 
-    pub async fn get_content_tree_metadata(
-        &self,
-        namespace: &str,
-        content_id: &str,
-        extraction_graph_name: &str,
-        extraction_policy: &str,
-    ) -> Result<Vec<api::ContentMetadata>> {
-        let response = self
-            .coordinator_client
-            .get_content_metadata_tree(
-                namespace,
-                extraction_graph_name,
-                extraction_policy,
-                content_id,
-            )
-            .await?;
-        let mut content_list: Vec<api::ContentMetadata> = vec![];
-        for content in response.content_list {
-            let content: api::ContentMetadata = content.try_into()?;
-            content_list.push(content);
-        }
-        Ok(content_list)
-    }
-
     #[tracing::instrument(skip(self, data))]
     pub async fn upload_file(
         &self,
