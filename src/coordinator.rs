@@ -156,6 +156,7 @@ impl Coordinator {
         let remove_executors: Vec<_> = {
             let state_executors: HashSet<ExecutorId> = self
                 .shared_state
+                .state_machine
                 .get_executors()
                 .await?
                 .into_iter()
@@ -372,34 +373,6 @@ impl Coordinator {
         self.garbage_collector
             .remove_server(ingestion_server_id)
             .await;
-        Ok(())
-    }
-
-    pub async fn get_content_metadata(
-        &self,
-        content_ids: Vec<String>,
-    ) -> Result<Vec<indexify_coordinator::ContentMetadata>> {
-        let content = self
-            .shared_state
-            .get_content_metadata_batch(content_ids)
-            .await?;
-        let content = self.internal_content_metadata_to_external(content)?;
-        Ok(content)
-    }
-
-    pub async fn get_task(&self, task_id: &str) -> Result<indexify_coordinator::Task> {
-        let task = self.shared_state.task_with_id(task_id).await?;
-        task.try_into()
-    }
-
-    pub fn get_extractor(
-        &self,
-        extractor_name: &str,
-    ) -> Result<internal_api::ExtractorDescription> {
-        self.shared_state.extractor_with_name(extractor_name)
-    }
-
-    pub async fn create_extraction_graph(&self, extraction_graph: ExtractionGraph) -> Result<()> {
         Ok(())
     }
 

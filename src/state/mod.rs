@@ -607,30 +607,6 @@ impl App {
         Ok(())
     }
 
-    pub async fn get_graph_analytics(
-        &self,
-        namespace: &str,
-        graph_name: &str,
-    ) -> Result<Option<indexify_internal_api::ExtractionGraphAnalytics>> {
-        self.state_machine
-            .get_graph_analytics(namespace, graph_name)
-            .await
-    }
-
-    pub fn extractor_with_name(
-        &self,
-        extractor: &str,
-    ) -> Result<internal_api::ExtractorDescription> {
-        let extractor = self
-            .state_machine
-            .get_from_cf::<internal_api::ExtractorDescription, _>(
-                StateMachineColumns::Extractors,
-                extractor,
-            )?
-            .ok_or_else(|| anyhow!("Extractor with name {} not found", extractor))?;
-        Ok(extractor)
-    }
-
     pub async fn create_namespace(&self, namespace: &str) -> Result<()> {
         let req = StateMachineUpdateRequest {
             payload: RequestPayload::CreateNamespace {
@@ -643,22 +619,6 @@ impl App {
         Ok(())
     }
 
-    pub async fn list_namespaces(&self) -> Result<Vec<String>> {
-        //  Fetch the namespaces from the db
-        let namespaces: Vec<String> = self
-            .state_machine
-            .get_all_rows_from_cf::<String>(StateMachineColumns::Namespaces)
-            .await?
-            .into_iter()
-            .map(|(key, _)| key)
-            .collect();
-
-        Ok(namespaces)
-    }
-
-    pub async fn namespace_exists(&self, namespace: &str) -> Result<bool> {
-        self.state_machine.namespace_exists(namespace).await
-    }
 
     pub async fn register_executor(&self, executor: ExecutorMetadata) -> Result<()> {
         let state_change = StateChange::new(
@@ -674,29 +634,7 @@ impl App {
         let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
     }
-
-    pub async fn get_executors(&self) -> Result<Vec<ExecutorMetadata>> {
-        let executors: Vec<_> = self
-            .state_machine
-            .get_all_rows_from_cf::<ExecutorMetadata>(StateMachineColumns::Executors, self.state_machine.get_db())
-            .await?
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
-        Ok(executors)
-    }
-
-    pub async fn get_executor_by_id(
-        &self,
-        executor_id: ExecutorIdRef<'_>,
-    ) -> Result<ExecutorMetadata> {
-        let executor = self
-            .state_machine
-            .get_from_cf::<ExecutorMetadata, _>(StateMachineColumns::Executors, executor_id)?
-            .ok_or_else(|| anyhow!("Executor with id {} not found", executor_id))?;
-        Ok(executor)
-    }
-
+    
     pub async fn commit_task_assignments(
         &self,
         assignments: HashMap<TaskId, ExecutorId>,
@@ -714,15 +652,6 @@ impl App {
         Ok(())
     }
 
-    /// Get content based on id's without version. Will fetch the latest version
-    /// for each one
-    pub async fn get_content_metadata_batch(
-        &self,
-        content_ids: Vec<String>,
-    ) -> Result<Vec<internal_api::ContentMetadata>> {
-        self.state_machine.get_content_from_ids(content_ids).await
-    }
-
     pub async fn create_tasks(
         &self,
         tasks: Vec<internal_api::Task>,
@@ -738,49 +667,6 @@ impl App {
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
         Ok(())
-    }
-
-    pub async fn list_tasks<F>(
-        &self,
-        filter: F,
-        start_id: Option<String>,
-        limit: Option<u64>,
-    ) -> Result<FilterResponse<internal_api::Task>>
-    where
-        F: Fn(&internal_api::Task) -> bool,
-    {
-        self.state_machine.list_tasks(filter, start_id, limit).await
-    }
-
-    pub async fn tasks_for_executor(
-        &self,
-        executor_id: &str,
-        limit: Option<u64>,
-    ) -> Result<Vec<internal_api::Task>> {
-        let tasks = self
-            .state_machine
-            .get_tasks_for_executor(executor_id, limit)
-            .await?;
-        Ok(tasks)
-    }
-
-    pub async fn task_with_id(&self, task_id: &str) -> Result<internal_api::Task> {
-        let task = self
-            .state_machine
-            .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)?
-            .ok_or_else(|| anyhow!("Task with id {} not found", task_id))?;
-        Ok(task)
-    }
-
-    pub async fn list_state_changes(&self) -> Result<Vec<StateChange>> {
-        let state_changes = self
-            .state_machine
-            .get_all_rows_from_cf::<StateChange>(StateMachineColumns::StateChanges)
-            .await?
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
-        Ok(state_changes)
     }
 
     pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {

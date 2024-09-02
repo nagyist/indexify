@@ -369,28 +369,8 @@ pub struct IndexifyState {
     /// State changes that have not been processed yet
     pub unprocessed_state_changes: UnprocessedStateChanges,
 
-    /// Extractor -> Executors table
-    pub extractor_executors_table: ExtractorExecutorsTable,
-
-    /// Namespace -> Index id
-    pub namespace_index_table: NamespaceIndexTable,
-
-    /// Tasks that are currently unfinished, by extractor. Once they are
-    /// finished, they are removed from this set.
-    /// Extractor name -> Task Ids
-    pub unfinished_tasks_by_extractor: UnfinishedTasksByExtractor,
-
     /// Pending tasks per executor, sorted by creation time
     pub unfinished_tasks_by_executor: RwLock<HashMap<ExecutorId, ExecutorUnfinishedTasks>>,
-
-    /// Namespace -> Schemas
-    pub schemas_by_namespace: SchemasByNamespace,
-
-    /// Parent content id -> children content id's
-    pub content_children_table: ContentChildrenTable,
-
-    /// Number of tasks pending for root content
-    root_task_counts: RwLock<HashMap<String, TaskCount>>,
 
     /// Metrics
     pub metrics: std::sync::Mutex<Metrics>,
@@ -414,12 +394,7 @@ impl fmt::Display for IndexifyState {
             "IndexifyState {{ unassigned_tasks: {:?}, unprocessed_state_changes: {:?}, extractor_executors_table: {:?}, namespace_index_table: {:?}, unfinished_tasks_by_extractor: {:?}, unfinished_tasks_by_executor: {:?}, schemas_by_namespace: {:?} }}, content_children_table: {:?}",
             self.unassigned_tasks,
             self.unprocessed_state_changes,
-            self.extractor_executors_table,
-            self.namespace_index_table,
-            self.unfinished_tasks_by_extractor,
             self.unfinished_tasks_by_executor,
-            self.schemas_by_namespace,
-            self.content_children_table,
         )
     }
 }
@@ -430,13 +405,7 @@ impl Default for IndexifyState {
         Self {
             unassigned_tasks: Default::default(),
             unprocessed_state_changes: Default::default(),
-            extractor_executors_table: Default::default(),
-            namespace_index_table: Default::default(),
-            unfinished_tasks_by_extractor: Default::default(),
             unfinished_tasks_by_executor: Default::default(),
-            schemas_by_namespace: Default::default(),
-            content_children_table: Default::default(),
-            root_task_counts: Default::default(),
             metrics: Default::default(),
             change_id: Default::default(),
             graph_links: Default::default(),
