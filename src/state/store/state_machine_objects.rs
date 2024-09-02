@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, RwLock},
     time::SystemTime,
 };
+use tracing::error;
 
 use anyhow::{anyhow, Result};
 use indexify_internal_api::{
@@ -164,124 +165,6 @@ impl From<HashMap<NamespaceName, HashSet<ContentMetadataId>>> for ContentNamespa
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct ExtractorExecutorsTable {
-    extractor_executors_table: Arc<RwLock<HashMap<ExtractorName, HashSet<ExecutorId>>>>,
-}
-
-impl ExtractorExecutorsTable {
-    pub fn insert(&self, extractor: &ExtractorName, executor_id: &ExecutorId) {
-        let mut guard = self.extractor_executors_table.write().unwrap();
-        guard
-            .entry(extractor.clone())
-            .or_default()
-            .insert(executor_id.clone());
-    }
-
-    pub fn remove(&self, extractor: &ExtractorName, executor_id: &ExecutorId) {
-        let mut guard = self.extractor_executors_table.write().unwrap();
-        guard
-            .entry(extractor.clone())
-            .or_default()
-            .remove(executor_id);
-    }
-
-    pub fn inner(&self) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
-        let guard = self.extractor_executors_table.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<ExtractorName, HashSet<ExecutorId>>> for ExtractorExecutorsTable {
-    fn from(extractor_executors_table: HashMap<ExtractorName, HashSet<ExecutorId>>) -> Self {
-        let extractor_executors_table = Arc::new(RwLock::new(extractor_executors_table));
-        Self {
-            extractor_executors_table,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct NamespaceIndexTable {
-    namespace_index_table: Arc<RwLock<HashMap<NamespaceName, HashSet<String>>>>,
-}
-
-impl NamespaceIndexTable {
-    pub fn insert(&self, namespace: &NamespaceName, index_id: &str) {
-        let mut guard = self.namespace_index_table.write().unwrap();
-        guard
-            .entry(namespace.clone())
-            .or_default()
-            .insert(index_id.to_owned());
-    }
-
-    pub fn remove(&self, namespace: &NamespaceName, index_id: &String) {
-        let mut guard = self.namespace_index_table.write().unwrap();
-        guard.entry(namespace.clone()).or_default().remove(index_id);
-    }
-
-    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        let guard = self.namespace_index_table.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<NamespaceName, HashSet<String>>> for NamespaceIndexTable {
-    fn from(namespace_index_table: HashMap<NamespaceName, HashSet<String>>) -> Self {
-        let namespace_index_table = Arc::new(RwLock::new(namespace_index_table));
-        Self {
-            namespace_index_table,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct UnfinishedTasksByExtractor {
-    unfinished_tasks_by_extractor: Arc<RwLock<HashMap<ExtractorName, HashSet<TaskId>>>>,
-}
-
-impl UnfinishedTasksByExtractor {
-    pub fn insert(&self, extractor: &ExtractorName, task_id: &TaskId) {
-        let mut guard = self.unfinished_tasks_by_extractor.write().unwrap();
-        guard
-            .entry(extractor.clone())
-            .or_default()
-            .insert(task_id.clone());
-    }
-
-    pub fn remove(&self, extractor: &ExtractorName, task_id: &TaskId) {
-        let mut guard = self.unfinished_tasks_by_extractor.write().unwrap();
-        guard.entry(extractor.clone()).or_default().remove(task_id);
-    }
-
-    pub fn inner(&self) -> HashMap<ExtractorName, HashSet<TaskId>> {
-        let guard = self.unfinished_tasks_by_extractor.read().unwrap();
-        guard.clone()
-    }
-
-    pub fn observe_task_counts(&self, observer: &dyn AsyncInstrument<u64>) {
-        let guard = self.unfinished_tasks_by_extractor.read().unwrap();
-        for (extractor, tasks) in guard.iter() {
-            observer.observe(
-                tasks.len() as u64,
-                &[opentelemetry::KeyValue::new(
-                    "extractor",
-                    extractor.to_string(),
-                )],
-            );
-        }
-    }
-}
-
-impl From<HashMap<ExtractorName, HashSet<TaskId>>> for UnfinishedTasksByExtractor {
-    fn from(unfinished_tasks_by_extractor: HashMap<ExtractorName, HashSet<TaskId>>) -> Self {
-        let unfinished_tasks_by_extractor = Arc::new(RwLock::new(unfinished_tasks_by_extractor));
-        Self {
-            unfinished_tasks_by_extractor,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct ExecutorRunningTaskCount {
     executor_running_task_count: Arc<RwLock<HashMap<ExecutorId, u64>>>,
 }
@@ -345,104 +228,6 @@ impl From<HashMap<ExecutorId, u64>> for ExecutorRunningTaskCount {
         let executor_running_task_count = Arc::new(RwLock::new(executor_running_task_count));
         Self {
             executor_running_task_count,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct SchemasByNamespace {
-    schemas_by_namespace: Arc<RwLock<HashMap<NamespaceName, HashSet<SchemaId>>>>,
-}
-
-impl SchemasByNamespace {
-    pub fn insert(&self, namespace: &NamespaceName, schema_id: &SchemaId) {
-        let mut guard = self.schemas_by_namespace.write().unwrap();
-        guard
-            .entry(namespace.clone())
-            .or_default()
-            .insert(schema_id.clone());
-    }
-
-    pub fn remove(&self, namespace: &NamespaceName, schema_id: &SchemaId) {
-        let mut guard = self.schemas_by_namespace.write().unwrap();
-        guard
-            .entry(namespace.clone())
-            .or_default()
-            .remove(schema_id);
-    }
-
-    pub fn inner(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
-        let guard = self.schemas_by_namespace.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<NamespaceName, HashSet<SchemaId>>> for SchemasByNamespace {
-    fn from(schemas_by_namespace: HashMap<NamespaceName, HashSet<SchemaId>>) -> Self {
-        let schemas_by_namespace = Arc::new(RwLock::new(schemas_by_namespace));
-        Self {
-            schemas_by_namespace,
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct ContentChildrenTable {
-    content_children_table: Arc<RwLock<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>>>,
-}
-
-impl ContentChildrenTable {
-    pub fn insert(&self, parent_id: &ContentMetadataId, child_id: &ContentMetadataId) {
-        let mut guard = self.content_children_table.write().unwrap();
-        guard
-            .entry(parent_id.clone())
-            .or_default()
-            .insert(child_id.clone());
-    }
-
-    pub fn remove(&self, parent_id: &ContentMetadataId, child_id: &ContentMetadataId) {
-        let mut guard = self.content_children_table.write().unwrap();
-        if let Some(children) = guard.get_mut(parent_id) {
-            children.remove(child_id);
-            if children.is_empty() {
-                guard.remove(parent_id);
-            }
-        }
-    }
-
-    pub fn remove_all(&self, parent_id: &ContentMetadataId) {
-        let mut guard = self.content_children_table.write().unwrap();
-        guard.remove(parent_id);
-    }
-
-    pub fn get_children(&self, parent_id: &ContentMetadataId) -> HashSet<ContentMetadataId> {
-        let guard = self.content_children_table.read().unwrap();
-        guard.get(parent_id).cloned().unwrap_or_default()
-    }
-
-    pub fn replace_parent(
-        &self,
-        old_parent_id: &ContentMetadataId,
-        new_parent_id: &ContentMetadataId,
-    ) {
-        let mut guard = self.content_children_table.write().unwrap();
-        let children = guard.remove(old_parent_id).unwrap_or_default();
-        guard.insert(new_parent_id.clone(), children);
-    }
-
-    pub fn inner(&self) -> HashMap<ContentMetadataId, HashSet<ContentMetadataId>> {
-        let guard = self.content_children_table.read().unwrap();
-        guard.clone()
-    }
-}
-
-impl From<HashMap<ContentMetadataId, HashSet<ContentMetadataId>>> for ContentChildrenTable {
-    fn from(
-        content_children_table: HashMap<ContentMetadataId, HashSet<ContentMetadataId>>,
-    ) -> Self {
-        let content_children_table = Arc::new(RwLock::new(content_children_table));
-        Self {
-            content_children_table,
         }
     }
 }
@@ -707,9 +492,6 @@ impl IndexifyState {
     ) -> Result<(), StateMachineError> {
         let mut change_id = self.get_next_change_ids(state_changes.len());
         for change in state_changes {
-            if let Some(refcnt_object_id) = change.refcnt_object_id.as_ref() {
-                self.inc_root_ref_count(refcnt_object_id);
-            }
             change.id = StateChangeId::new(change_id);
             change_id += 1;
             let serialized_change = JsonEncoder::encode(&change)?;
@@ -754,131 +536,30 @@ impl IndexifyState {
         Ok(changes)
     }
 
-    fn update_tasks(
+    fn create_tasks(
         &self,
         db: &OptimisticTransactionDB,
         txn: &Transaction<OptimisticTransactionDB>,
         tasks: Vec<Task>,
-        update_time: SystemTime,
     ) -> Result<(), StateMachineError> {
         for task in tasks {
+            // Write tasks
             let serialized_task = JsonEncoder::encode(&task)?;
-            let prev_task: Option<Task> = get_from_cf(db, StateMachineColumns::Tasks, &task.id)
-                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
             txn.put_cf(
                 StateMachineColumns::Tasks.cf(db),
-                task.id.clone(),
+                task.key(),
                 &serialized_task,
             )
             .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-
-            // Mark the completion time if the task is terminal
-            // If the task is newly created, we need to add an entry to the content metadata
-            // that a new task was created for that content.
-            if task.terminal_state() || update_time == SystemTime::UNIX_EPOCH {
-                let extraction_policy_id = ExtractionPolicy::create_id(
-                    &task.extraction_graph_name,
-                    &task.extraction_policy_name,
-                    &task.namespace,
-                );
-                self.update_content_extraction_policy_state(
-                    db,
-                    txn,
-                    &task.content_metadata.id,
-                    &extraction_policy_id,
-                    update_time,
-                )?;
+            // Update task analytics 
+            let key = format!("{}_{}_{}", task.namespace, task.compute_graph_name, task.ingestion_data_object_id);
+            let graph_ctx = txn.get_cf(StateMachineColumns::GraphInvocationCtx.cf(db), key).map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+            if graph_ctx.is_none() {
+                error!("Graph context not found for task: {}", task.key());
+                continue;
             }
+            let graph_ctx: GraphInvocationCtx = JsonEncoder::decode(&graph_ctx.unwrap())?;
 
-            self.update_task_analytics(db, txn, prev_task, &task)
-                .map_err(|e| {
-                    StateMachineError::DatabaseError(format!(
-                        "Error updating task analytics for task {}: {}",
-                        task.id, e
-                    ))
-                })?;
-        }
-        Ok(())
-    }
-
-    fn update_task_analytics(
-        &self,
-        db: &OptimisticTransactionDB,
-        txn: &Transaction<OptimisticTransactionDB>,
-        prev_task: Option<Task>,
-        new_task: &Task,
-    ) -> Result<(), StateMachineError> {
-        let key = format!(
-            "{}_{}_{}",
-            new_task.namespace, new_task.extraction_graph_name, new_task.extraction_policy_name
-        );
-        let task_analytics = db
-            .get_cf(StateMachineColumns::TaskAnalytics.cf(db), key.clone())
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-        let mut task_analytics: TaskAnalytics = task_analytics
-            .map(|db_vec| {
-                JsonEncoder::decode(&db_vec)
-                    .map_err(|e| StateMachineError::DatabaseError(e.to_string()))
-            })
-            .unwrap_or_else(|| Ok(TaskAnalytics::default()))?;
-        match prev_task {
-            Some(prev_task) => {
-                if !prev_task.terminal_state() && new_task.terminal_state() {
-                    if new_task.outcome == TaskOutcome::Success {
-                        task_analytics.success();
-                    } else {
-                        task_analytics.fail();
-                    }
-                }
-            }
-            None => {
-                task_analytics.pending();
-            }
-        }
-
-        let serialized_task_analytics = JsonEncoder::encode(&task_analytics)?;
-        txn.put_cf(
-            StateMachineColumns::TaskAnalytics.cf(db),
-            key,
-            serialized_task_analytics,
-        )
-        .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-        Ok(())
-    }
-
-    fn set_garbage_collection_tasks(
-        &self,
-        db: &OptimisticTransactionDB,
-        txn: &Transaction<OptimisticTransactionDB>,
-        garbage_collection_tasks: &[impl AsRef<internal_api::GarbageCollectionTask>],
-    ) -> Result<(), StateMachineError> {
-        for gc_task in garbage_collection_tasks {
-            let gc_task = gc_task.as_ref();
-            let serialized_gc_task = JsonEncoder::encode(gc_task)?;
-            txn.put_cf(
-                StateMachineColumns::GarbageCollectionTasks.cf(db),
-                &gc_task.id,
-                &serialized_gc_task,
-            )
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-        }
-        Ok(())
-    }
-
-    fn update_garbage_collection_tasks(
-        &self,
-        db: &OptimisticTransactionDB,
-        txn: &Transaction<OptimisticTransactionDB>,
-        garbage_collection_tasks: &Vec<&internal_api::GarbageCollectionTask>,
-    ) -> Result<(), StateMachineError> {
-        for gc_task in garbage_collection_tasks {
-            let serialized_gc_task = JsonEncoder::encode(gc_task)?;
-            txn.put_cf(
-                StateMachineColumns::GarbageCollectionTasks.cf(db),
-                gc_task.id.clone(),
-                &serialized_gc_task,
-            )
-            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
         }
         Ok(())
     }
@@ -1382,9 +1063,6 @@ impl IndexifyState {
             }
             RequestPayload::CreateTasks { tasks } => {
                 self.update_tasks(db, &txn, tasks.clone(), SystemTime::UNIX_EPOCH)?;
-                for task in tasks {
-                    self.inc_root_ref_count(task.content_metadata.get_root_id());
-                }
             }
             RequestPayload::AssignTask { assignments } => {
                 let assignments: HashMap<&String, HashSet<TaskId>> =
@@ -1407,32 +1085,9 @@ impl IndexifyState {
                     self.set_task_assignments(db, &txn, &task_assignment)?;
                 }
             }
-            RequestPayload::UpdateTask {
-                task,
-                executor_id,
-                update_time,
-            } => {
-                self.update_tasks(db, &txn, vec![task.clone()], *update_time)?;
-
-                if task.terminal_state() {
-                    self.metrics
-                        .lock()
-                        .unwrap()
-                        .update_task_completion(task.outcome);
-
-                    //  If the task is meant to be marked finished and has an executor id, remove it
-                    // from the list of tasks assigned to an executor
-                    if let Some(executor_id) = executor_id {
-                        let mut existing_tasks =
-                            self.get_task_assignments_for_executor(db, &txn, executor_id)?;
-                        existing_tasks.remove(&task.id);
-                        let new_task_assignment =
-                            HashMap::from([(executor_id.to_string(), existing_tasks)]);
-                        self.set_task_assignments(db, &txn, &new_task_assignment)?;
-                    }
-                    self.dec_root_ref_count(task.content_metadata.get_root_id());
-                }
-            }
+            RequestPayload::UpdateTask(request) => {
+                self.update_tasks(db, &txn, request)?;
+            }             
             RequestPayload::RegisterExecutor(executor) => {
                 //  Insert the executor
                 self.set_executor(db, &txn, executor)?;
@@ -1465,34 +1120,8 @@ impl IndexifyState {
             RequestPayload::CreateExtractionGraphLink {
                 extraction_graph_link,
             } => {
-                self.set_extraction_graph_link(db, &txn, extraction_graph_link)?;
-                let linked_graph = self.get_extraction_graphs_by_name(
-                    &extraction_graph_link.node.namespace,
-                    &[extraction_graph_link.graph_name.clone()],
-                    db,
-                )?;
-                let mut graph_links = self.graph_links.write().unwrap();
-                if let Some(Some(linked_graph)) = linked_graph.first() {
-                    for policy in &linked_graph.extraction_policies {
-                        if policy.content_source == ContentSource::Ingestion {
-                            graph_links
-                                .entry(extraction_graph_link.node.clone())
-                                .or_default()
-                                .insert(policy.id.clone());
-                        }
-                    }
-                }
             }
         };
-
-        let unprocessed_changes = self.get_unprocessed_state_changes();
-        for state_change in state_changes_processed {
-            if unprocessed_changes.contains(&state_change.id) {
-                if let Some(refcnt_object_id) = &state_change.refcnt_object_id {
-                    self.dec_root_ref_count(refcnt_object_id);
-                }
-            }
-        }
 
         let last_change_id = request.new_state_changes.last().map(|sc| sc.id);
 
@@ -1551,31 +1180,6 @@ impl IndexifyState {
                 }
                 Ok(())
             }
-            RequestPayload::UpdateTask {
-                task,
-                executor_id,
-                update_time: _,
-            } => {
-                if task.terminal_state() {
-                    self.unassigned_tasks.remove(&task.id);
-                    self.unfinished_tasks_by_extractor
-                        .remove(&task.extractor, &task.id);
-                    if let Some(ref executor_id) = executor_id {
-                        if let Some(tasks) = self
-                            .unfinished_tasks_by_executor
-                            .write()
-                            .unwrap()
-                            .get_mut(executor_id)
-                        {
-                            tasks.remove(&UnfinishedTask {
-                                id: task.id.clone(),
-                                creation_time: task.creation_time,
-                            })
-                        }
-                    }
-                }
-                Ok(())
-            }
             RequestPayload::MarkStateChangesProcessed { state_changes } => {
                 for state_change in state_changes {
                     self.mark_state_changes_processed(&state_change, state_change.processed_at);
@@ -1593,41 +1197,6 @@ impl IndexifyState {
     }
 
     //  START READER METHODS FOR ROCKSDB FORWARD INDEXES
-
-    pub fn get_latest_version_of_content(
-        &self,
-        content_id: &str,
-        db: &OptimisticTransactionDB,
-        txn: &Transaction<OptimisticTransactionDB>,
-    ) -> Result<Option<ContentMetadata>, StateMachineError> {
-        txn.get_cf(StateMachineColumns::ContentTable.cf(db), content_id)
-            .map_err(|e| StateMachineError::TransactionError(e.to_string()))?
-            .map(|data| JsonEncoder::decode::<ContentMetadata>(&data))
-            .transpose()
-    }
-
-    #[allow(deprecated)]
-    fn delete_extraction_graph_by_id(
-        &self,
-        db: &OptimisticTransactionDB,
-        txn: &Transaction<OptimisticTransactionDB>,
-        graph_id: &str,
-    ) -> Result<(), StateMachineError> {
-        for item in txn.iterator_cf(
-            StateMachineColumns::ExtractionGraphs.cf(db),
-            IteratorMode::Start,
-        ) {
-            let (key, value) = item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-            let graph = JsonEncoder::decode::<ExtractionGraph>(&value)?;
-            if ExtractionGraph::create_id(&graph.name, &graph.namespace) == graph_id {
-                txn.delete_cf(StateMachineColumns::ExtractionGraphs.cf(db), key)
-                    .map_err(|e| StateMachineError::TransactionError(e.to_string()))?;
-                return Ok(());
-            }
-        }
-        warn!("Extraction graph with id {} not found", graph_id);
-        Ok(())
-    }
 
     fn invoke_compute_graph(
         &self,
@@ -1940,53 +1509,6 @@ impl IndexifyState {
         })
     }
 
-    /// Test utility method to get all key-value pairs from a column family
-    pub fn get_all_rows_from_cf<V>(
-        &self,
-        column: StateMachineColumns,
-        db: &OptimisticTransactionDB,
-    ) -> Result<Vec<(String, V)>, StateMachineError>
-    where
-        V: DeserializeOwned,
-    {
-        let cf_handle = db
-            .cf_handle(column.as_ref())
-            .ok_or(StateMachineError::DatabaseError(format!(
-                "Failed to get column family {}",
-                column
-            )))?;
-        let iter = db.iterator_cf(cf_handle, IteratorMode::Start);
-
-        iter.map(|item| {
-            item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
-                .and_then(|(key, value)| {
-                    match column {
-                        StateMachineColumns::StateChanges => {
-                            // let key = u64::from_be_bytes(key).to_string();
-                            let key =
-                                StateChangeId::from_key(key.to_vec()[..8].try_into().map_err(
-                                    |e: std::array::TryFromSliceError| {
-                                        StateMachineError::DatabaseError(e.to_string())
-                                    },
-                                )?)
-                                .to_string();
-                            let value = JsonEncoder::decode(&value)
-                                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-                            Ok((key, value))
-                        }
-                        _ => {
-                            let key = String::from_utf8(key.to_vec())
-                                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-                            let value = JsonEncoder::decode(&value)
-                                .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
-                            Ok((key, value))
-                        }
-                    }
-                })
-        })
-        .collect::<Result<Vec<(String, V)>, _>>()
-    }
-
     //  START READER METHODS FOR REVERSE INDEXES
     pub fn get_unassigned_tasks(&self) -> HashMap<TaskId, SystemTime> {
         self.unassigned_tasks.inner()
@@ -1996,99 +1518,8 @@ impl IndexifyState {
         self.unprocessed_state_changes.inner()
     }
 
-    pub fn get_extractor_executors_table(&self) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
-        self.extractor_executors_table.inner()
-    }
-
-    pub fn get_namespace_index_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.namespace_index_table.inner()
-    }
-
-    pub fn get_unfinished_tasks_by_extractor(&self) -> HashMap<ExtractorName, HashSet<TaskId>> {
-        self.unfinished_tasks_by_extractor.inner()
-    }
-
-    pub fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
-        self.unfinished_tasks_by_executor
-            .read()
-            .unwrap()
-            .iter()
-            .map(|(k, v)| (k.clone(), v.tasks.len() as u64))
-            .collect()
-    }
-
-    pub fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<SchemaId>> {
-        self.schemas_by_namespace.inner()
-    }
-
-    pub fn get_content_children_table(
-        &self,
-    ) -> HashMap<ContentMetadataId, HashSet<ContentMetadataId>> {
-        self.content_children_table.inner()
-    }
-
-    fn inc_root_ref_count(&self, content_id: &str) {
-        let mut root_task_counts = self.root_task_counts.write().unwrap();
-        root_task_counts
-            .entry(content_id.to_string())
-            .and_modify(|c| c.count += 1)
-            .or_insert(TaskCount {
-                count: 1,
-                notify: None,
-            });
-    }
-
-    fn dec_root_ref_count(&self, content_id: &str) {
-        let mut root_task_counts = self.root_task_counts.write().unwrap();
-        match root_task_counts.entry(content_id.to_string()) {
-            Entry::Occupied(mut entry) => {
-                entry.get_mut().count -= 1;
-                if entry.get().count == 0 {
-                    let notify = entry.get().notify.clone();
-                    entry.remove_entry();
-                    drop(root_task_counts);
-
-                    if let Some(tx) = notify {
-                        let _ = tx.send(());
-                    }
-                }
-            }
-            Entry::Vacant(_) => {
-                // this should never happen
-            }
-        }
-    }
-
-    pub async fn wait_root_task_count_zero(&self, content_id: &str) {
-        loop {
-            let mut receiver = {
-                let mut root_task_counts = self.root_task_counts.write().unwrap();
-                match root_task_counts.get_mut(content_id) {
-                    Some(tc) => match tc.notify {
-                        Some(ref n) => n.subscribe(),
-                        None => {
-                            let (tx, rx) = broadcast::channel(1);
-                            tc.notify = Some(tx);
-                            rx
-                        }
-                    },
-                    None => return,
-                }
-            };
-            let _ = receiver.recv().await;
-        }
-    }
-
-    pub fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
-        self.root_task_counts
-            .read()
-            .unwrap()
-            .get(&content_id.id)
-            .is_none()
-    }
-
     pub fn executor_count(&self) -> usize {
-        self.unfinished_tasks_by_executor.read().unwrap().len()
+        0
     }
 
     //  END READER METHODS FOR REVERSE INDEXES
@@ -2161,32 +1592,6 @@ impl IndexifyState {
         let mut graph_links = self.graph_links.write().unwrap();
 
         self.rebuild_graph_links(db, &mut graph_links)?;
-
-        for eg in self.iter_cf(db, StateMachineColumns::ExtractionGraphs) {
-            let eg = eg?;
-            let eg: ExtractionGraph = eg.1;
-            for policy in eg.extraction_policies {
-                graph_links
-                    .entry(ExtractionGraphNode {
-                        namespace: eg.namespace.clone(),
-                        graph_name: eg.name.clone(),
-                        source: policy.content_source.clone(),
-                    })
-                    .or_default()
-                    .insert(policy.id.clone());
-            }
-        }
-
-        for task in self.iter_cf::<Task>(db, StateMachineColumns::Tasks) {
-            let (_, task) = task?;
-            if !task.terminal_state() {
-                unassigned_tasks.insert(task.id.clone(), task.creation_time);
-                unfinished_tasks_by_extractor
-                    .entry(task.extractor.clone())
-                    .or_default()
-                    .insert(task.id.clone());
-            }
-        }
 
         for task_assignment in
             self.iter_cf::<HashSet<TaskId>>(db, StateMachineColumns::TaskAssignments)

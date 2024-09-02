@@ -30,7 +30,6 @@ mod forwardable_coordinator;
 mod garbage_collector;
 mod grpc_helper;
 mod scheduler;
-mod test_util;
 mod tls;
 mod tonic_streamer;
 mod utils;

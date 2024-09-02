@@ -217,6 +217,52 @@ impl TryFrom<FilterResponse<Task>> for indexify_coordinator::ListTasksResponse {
     }
 }
 
+pub fn get_all_rows_from_cf<V>(
+    column: StateMachineColumns,
+    db: &OptimisticTransactionDB,
+) -> Result<Vec<(String, V)>, StateMachineError>
+where
+    V: DeserializeOwned,
+{
+    let cf_handle = db
+        .cf_handle(column.as_ref())
+        .ok_or(StateMachineError::DatabaseError(format!(
+            "Failed to get column family {}",
+            column
+        )))?;
+    let iter = db.iterator_cf(cf_handle, IteratorMode::Start);
+
+    iter.map(|item| {
+        item.map_err(|e| StateMachineError::DatabaseError(e.to_string()))
+            .and_then(|(key, value)| {
+                match column {
+                    StateMachineColumns::StateChanges => {
+                        // let key = u64::from_be_bytes(key).to_string();
+                        let key =
+                            StateChangeId::from_key(key.to_vec()[..8].try_into().map_err(
+                                |e: std::array::TryFromSliceError| {
+                                    StateMachineError::DatabaseError(e.to_string())
+                                },
+                            )?)
+                            .to_string();
+                        let value = JsonEncoder::decode(&value)
+                            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                        Ok((key, value))
+                    }
+                    _ => {
+                        let key = String::from_utf8(key.to_vec())
+                            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                        let value = JsonEncoder::decode(&value)
+                            .map_err(|e| StateMachineError::DatabaseError(e.to_string()))?;
+                        Ok((key, value))
+                    }
+                }
+            })
+    })
+    .collect::<Result<Vec<(String, V)>, _>>()
+}
+
+
 pub fn filter_join_cf<T, F, K>(
     db: &OptimisticTransactionDB,
     index_column: StateMachineColumns,
@@ -804,18 +850,6 @@ impl StateMachineStore {
         Ok(None)
     }
 
-    pub fn get_latest_version_of_content(
-        &self,
-        content_id: &str,
-    ) -> Result<Option<ContentMetadata>> {
-        let db = self.db.read().unwrap();
-        let txn = db.transaction();
-        self.data
-            .indexify_state
-            .get_latest_version_of_content(content_id, &db, &txn)
-            .map_err(|e| anyhow::anyhow!("Failed to get latest version of content: {}", e))
-    }
-
     /// This method fetches a key from a specific column family
     pub fn get_from_cf<T, K>(
         &self,
@@ -828,7 +862,7 @@ impl StateMachineStore {
     {
         get_from_cf(&self.db.read().unwrap(), column, key)
     }
-    
+
     pub async fn list_tasks<F>(
         &self,
         filter: F,
@@ -976,20 +1010,6 @@ impl StateMachineStore {
             .get_coordinator_addr(node_id, &self.db.read().unwrap())
     }
 
-    /// Test utility method to get all key-value pairs from a column family
-    pub async fn get_all_rows_from_cf<V>(
-        &self,
-        column: StateMachineColumns,
-    ) -> Result<Vec<(String, V)>, anyhow::Error>
-    where
-        V: DeserializeOwned,
-    {
-        self.data
-            .indexify_state
-            .get_all_rows_from_cf(column, &self.db.read().unwrap())
-            .map_err(|e| anyhow::anyhow!("Failed to get all rows from column family: {}", e))
-    }
-
     //  END FORWARD INDEX READER METHOD INTERFACES
 
     //  START REVERSE INDEX READER METHOD INTERFACES
@@ -1001,62 +1021,6 @@ impl StateMachineStore {
         self.data.indexify_state.get_unprocessed_state_changes()
     }
 
-    #[cfg(test)]
-    pub fn get_content_namespace_table(
-        &self,
-    ) -> Result<HashMap<NamespaceName, HashSet<ContentMetadataId>>> {
-        let db = self.db.read().unwrap();
-        let cf = StateMachineColumns::ContentTable.cf(&db);
-        let mut res: HashMap<NamespaceName, HashSet<ContentMetadataId>> = HashMap::new();
-        for val in db.iterator_cf(cf, IteratorMode::Start) {
-            let (_, val) = val?;
-            let content: ContentMetadata = JsonEncoder::decode(&val)?;
-            res.entry(content.namespace).or_default().insert(content.id);
-        }
-        Ok(res)
-    }
-
-    pub async fn get_extractor_executors_table(
-        &self,
-    ) -> HashMap<ExtractorName, HashSet<ExecutorId>> {
-        self.data.indexify_state.get_extractor_executors_table()
-    }
-
-    pub async fn get_namespace_index_table(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.data.indexify_state.get_namespace_index_table()
-    }
-
-    pub async fn get_unfinished_tasks_by_extractor(
-        &self,
-    ) -> HashMap<ExtractorName, HashSet<TaskId>> {
-        self.data.indexify_state.get_unfinished_tasks_by_extractor()
-    }
-
-    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
-        self.data.indexify_state.get_executor_running_task_count()
-    }
-
-    pub async fn get_schemas_by_namespace(&self) -> HashMap<NamespaceName, HashSet<String>> {
-        self.data.indexify_state.get_schemas_by_namespace()
-    }
-
-    pub async fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
-        self.data
-            .indexify_state
-            .are_content_tasks_completed(content_id)
-    }
-
-    pub fn get_content_children(
-        &self,
-        content_id: &ContentMetadataId,
-    ) -> HashSet<ContentMetadataId> {
-        self.data
-            .indexify_state
-            .content_children_table
-            .get_children(content_id)
-    }
-
-    //  END REVERSE INDEX READER METHOD INTERFACES
 }
 
 impl RaftSnapshotBuilder<TypeConfig> for Arc<StateMachineStore> {

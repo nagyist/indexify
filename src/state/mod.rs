@@ -32,7 +32,8 @@ use internal_api::{
     ExtractionPolicy,
     StateChange,
     StateChangeId,
-    StructuredDataSchema,
+    TaskOutcome,
+    DataObject,
 };
 use itertools::Itertools;
 use network::Network;
@@ -50,6 +51,7 @@ use store::{
         RequestPayload,
         StateChangeProcessed,
         StateMachineUpdateRequest,
+        MarkTaskFinishedRequest,
     },
     serializer::{JsonEncode, JsonEncoder},
     ExecutorId,
@@ -451,10 +453,6 @@ impl App {
         self.state_machine.get_all_task_assignments().await
     }
 
-    pub async fn get_executor_running_task_count(&self) -> HashMap<ExecutorId, u64> {
-        self.state_machine.get_executor_running_task_count().await
-    }
-
     pub async fn subscribe_to_new_tasks(&self, executor_id: &str) -> broadcast::Receiver<()> {
         self.state_machine
             .data
@@ -465,20 +463,6 @@ impl App {
             .entry(executor_id.to_string())
             .or_default()
             .subscribe()
-    }
-
-    pub async fn unfinished_tasks_by_extractor(
-        &self,
-        extractor: &str,
-    ) -> Result<HashSet<TaskId>, anyhow::Error> {
-        let task_ids = self
-            .state_machine
-            .get_unfinished_tasks_by_extractor()
-            .await
-            .get(extractor)
-            .cloned()
-            .unwrap_or_default();
-        Ok(task_ids)
     }
 
     /// Get all content from a namespace
@@ -599,35 +583,24 @@ impl App {
 
     pub async fn update_task(
         &self,
-        task: internal_api::Task,
-        executor_id: Option<String>,
+        namespace: &str,
+        compute_graph_name: &str,
+        compute_fn_name: &str,
+        task_id: &str,
+        outcome: TaskOutcome,
+        data_objects: Vec<DataObject>,
     ) -> Result<()> {
-        let root_content_id = if let Some(root_id) = &task.content_metadata.root_content_id {
-            self.state_machine
-                .get_latest_version_of_content(root_id)?
-                .map(|c| c.id)
-        } else {
-            Some(task.content_metadata.id.clone())
-        };
-        // Trigger garbage collection for previous content if the root content has been
-        // updated.
-        let new_state_changes = match root_content_id {
-            Some(id) if id.version > 1 => vec![StateChange::new(
-                id.to_string(),
-                ChangeType::TaskCompleted {
-                    root_content_id: id,
-                },
-                timestamp_secs(),
-            )],
-            _ => Vec::new(),
+        let request = MarkTaskFinishedRequest {
+            namespace: namespace.to_string(),
+            compute_graph_name: compute_graph_name.to_string(),
+            compute_fn_name: compute_fn_name.to_string(),
+            task_id: task_id.to_string(),
+            outcome,
+            data_objects,
         };
         let req = StateMachineUpdateRequest {
-            payload: RequestPayload::UpdateTask {
-                task,
-                executor_id,
-                update_time: SystemTime::now(),
-            },
-            new_state_changes,
+            payload: RequestPayload::UpdateTask(request),
+            new_state_changes: vec![],
             state_changes_processed: vec![],
         };
         let _resp = self.forwardable_raft.client_write(req).await?;
@@ -670,18 +643,6 @@ impl App {
         Ok(())
     }
 
-    pub async fn list_extraction_graphs(&self, namespace: &str) -> Result<Vec<ExtractionGraph>> {
-        let graphs: Vec<ExtractionGraph> = self
-            .state_machine
-            .get_all_rows_from_cf::<ExtractionGraph>(StateMachineColumns::ExtractionGraphs)
-            .await?
-            .into_iter()
-            .filter(|(_, graph)| graph.namespace.eq(namespace))
-            .map(|(_, graph)| graph)
-            .collect();
-        Ok(graphs)
-    }
-
     pub async fn list_namespaces(&self) -> Result<Vec<String>> {
         //  Fetch the namespaces from the db
         let namespaces: Vec<String> = self
@@ -714,23 +675,10 @@ impl App {
         Ok(())
     }
 
-    pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
-        let extractors: Vec<internal_api::ExtractorDescription> = self
-            .state_machine
-            .get_all_rows_from_cf::<internal_api::ExtractorDescription>(
-                StateMachineColumns::Extractors,
-            )
-            .await?
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
-        Ok(extractors)
-    }
-
     pub async fn get_executors(&self) -> Result<Vec<ExecutorMetadata>> {
         let executors: Vec<_> = self
             .state_machine
-            .get_all_rows_from_cf::<ExecutorMetadata>(StateMachineColumns::Executors)
+            .get_all_rows_from_cf::<ExecutorMetadata>(StateMachineColumns::Executors, self.state_machine.get_db())
             .await?
             .into_iter()
             .map(|(_, value)| value)
@@ -816,47 +764,12 @@ impl App {
         Ok(tasks)
     }
 
-    #[cfg(test)]
-    pub async fn list_all_unfinished_tasks(&self) -> Result<Vec<internal_api::Task>> {
-        let tasks: Vec<internal_api::Task> = self
-            .state_machine
-            .get_all_rows_from_cf::<internal_api::Task>(StateMachineColumns::Tasks)
-            .await?
-            .into_iter()
-            .map(|(_, value)| value)
-            .filter(|task| task.outcome != internal_api::TaskOutcome::Success)
-            .collect();
-        Ok(tasks)
-    }
-
-    #[cfg(test)]
-    pub async fn list_all_gc_tasks(&self) -> Result<Vec<GarbageCollectionTask>> {
-        let gc_tasks: Vec<GarbageCollectionTask> = self
-            .state_machine
-            .get_all_rows_from_cf::<GarbageCollectionTask>(
-                StateMachineColumns::GarbageCollectionTasks,
-            )
-            .await?
-            .into_iter()
-            .map(|(_, value)| value)
-            .collect();
-        Ok(gc_tasks)
-    }
-
     pub async fn task_with_id(&self, task_id: &str) -> Result<internal_api::Task> {
         let task = self
             .state_machine
             .get_from_cf::<internal_api::Task, _>(StateMachineColumns::Tasks, task_id)?
             .ok_or_else(|| anyhow!("Task with id {} not found", task_id))?;
         Ok(task)
-    }
-
-    pub async fn gc_task_with_id(&self, gc_task_id: &str) -> Result<GarbageCollectionTask> {
-        let gc_task = self
-            .state_machine
-            .get_from_cf(StateMachineColumns::GarbageCollectionTasks, gc_task_id)?
-            .ok_or_else(|| anyhow!("Garbage collection task with id {} not found", gc_task_id))?;
-        Ok(gc_task)
     }
 
     pub async fn list_state_changes(&self) -> Result<Vec<StateChange>> {
@@ -868,18 +781,6 @@ impl App {
             .map(|(_, value)| value)
             .collect();
         Ok(state_changes)
-    }
-
-    pub async fn get_unfinished_tasks_by_extractor(
-        &self,
-    ) -> HashMap<store::ExtractorName, HashSet<TaskId>> {
-        self.state_machine.get_unfinished_tasks_by_extractor().await
-    }
-
-    pub async fn are_content_tasks_completed(&self, content_id: &ContentMetadataId) -> bool {
-        self.state_machine
-            .are_content_tasks_completed(content_id)
-            .await
     }
 
     pub fn start_periodic_membership_check(self: &Arc<Self>, mut shutdown_rx: Receiver<()>) {
@@ -976,268 +877,3 @@ async fn watch_for_leader_change(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::{
-        collections::HashMap,
-        sync::Arc,
-        time::{Duration, SystemTime},
-    };
-
-    use filter::{Expression, LabelsFilter, Operator};
-    use indexify_internal_api::{ContentMetadata, ContentMetadataId, TaskOutcome};
-
-    use crate::{
-        state::{
-            store::{
-                requests::{RequestPayload, StateMachineUpdateRequest},
-                ExecutorId,
-                TaskId,
-            },
-            App,
-        },
-        test_util::db_utils::{
-            create_test_extraction_graph,
-            mock_executor,
-            mock_extractor,
-            test_mock_content_metadata,
-        },
-        test_utils::RaftTestCluster,
-    };
-
-    fn make_task(task_id: &str, content_metadata: &ContentMetadata) -> indexify_internal_api::Task {
-        indexify_internal_api::Task {
-            id: task_id.into(),
-            compute_graph_name: "".to_string(),
-            compute_fn_name: "".to_string(),
-            input_data_object_id: content_metadata.id.id.clone(),
-            namespace: content_metadata.namespace.clone(),
-            extractor: "".to_string(),
-            extraction_policy_name: "".to_string(),
-            extraction_graph_name: "".to_string(),
-            content_metadata: content_metadata.clone(),
-            output_index_table_mapping: Default::default(),
-            outcome: TaskOutcome::Unknown,
-            input_params: Default::default(),
-            index_tables: Default::default(),
-            creation_time: SystemTime::now(),
-        }
-    }
-
-    /// Test to determine that a task that was created can be read back
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_write_read_task() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-
-        let content = ContentMetadata {
-            id: ContentMetadataId::new("content_id"),
-            ..Default::default()
-        };
-
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let state_change = node.unprocessed_state_change_events().await?;
-        let state_change = state_change.first().unwrap();
-        let task = make_task("id", &content);
-        node.create_tasks(vec![task.clone()], state_change.id)
-            .await?;
-        let retr_task = node.task_with_id(&task.id).await?;
-        assert_eq!(retr_task, task);
-        Ok(())
-    }
-
-    /// Test to determine that assigning a task to an executor works correctly
-    #[tokio::test]
-    // #[tracing_test::traced_test]
-    async fn test_write_read_task_assignment() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(1, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-
-        //  First create a task and ensure it's written
-        let content = ContentMetadata {
-            id: ContentMetadataId::new("content_id"),
-            ..Default::default()
-        };
-        let task = make_task("task_id", &content);
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateTasks {
-                tasks: vec![task.clone()],
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-
-        let read_back = {
-            move |node: Arc<App>| async move {
-                match node.task_with_id("task_id").await {
-                    Ok(read_result) if read_result.id == "task_id" => Ok(true),
-                    Ok(_) => Ok(false),
-                    Err(_) => Ok(false),
-                }
-            }
-        };
-        cluster.read_own_write(request, read_back, true).await?;
-
-        //  assign the task to some executor
-        let assignments: HashMap<TaskId, ExecutorId> =
-            vec![("task_id".into(), "executor_id".into())]
-                .into_iter()
-                .collect();
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::AssignTask { assignments },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-
-        let read_back = |node: Arc<App>| async move {
-            match node.tasks_for_executor("executor_id", None).await {
-                Ok(tasks_vec)
-                    if tasks_vec.len() == 1 && tasks_vec.first().unwrap().id == "task_id" =>
-                {
-                    Ok(true)
-                }
-                Ok(_) => Ok(false),
-                Err(_) => Ok(false),
-            }
-        };
-        cluster.read_own_write(request, read_back, true).await?;
-
-        Ok(())
-    }
-
-    /// Test to determine that updating a task works correctly
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_update_task_and_read() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-
-        //  Create a task and ensure that it can be read back
-        let content = ContentMetadata {
-            id: ContentMetadataId::new("content_id"),
-            ..Default::default()
-        };
-        let task = make_task("task_id", &content);
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::CreateTasks {
-                tasks: vec![task.clone()],
-            },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        let read_back = {
-            move |node: Arc<App>| async move {
-                match node.task_with_id("task_id").await {
-                    Ok(read_result) if read_result.id == "task_id" => Ok(true),
-                    Ok(_) => Ok(false),
-                    Err(_) => Ok(false),
-                }
-            }
-        };
-        cluster.read_own_write(request, read_back, true).await?;
-
-        //  Assign the task to an executor
-        let assignments: HashMap<TaskId, ExecutorId> =
-            vec![("task_id".into(), "executor_id".into())]
-                .into_iter()
-                .collect();
-        let request = StateMachineUpdateRequest {
-            payload: RequestPayload::AssignTask { assignments },
-            new_state_changes: vec![],
-            state_changes_processed: vec![],
-        };
-        let read_back = |node: Arc<App>| async move {
-            match node.tasks_for_executor("executor_id", None).await {
-                Ok(tasks_vec)
-                    if tasks_vec.len() == 1 &&
-                        tasks_vec.first().unwrap().id == "task_id" &&
-                        tasks_vec.first().unwrap().outcome == TaskOutcome::Unknown =>
-                {
-                    Ok(true)
-                }
-                Ok(_) => Ok(false),
-                Err(_) => Ok(false),
-            }
-        };
-        cluster.read_own_write(request, read_back, true).await?;
-
-        //  Update the task and mark it as complete by calling the update_task method
-        let mut task = make_task("task_id", &content);
-        task.outcome = TaskOutcome::Success;
-        let executor_id = "executor_id";
-        let node = cluster.get_raft_node(0)?;
-        node.update_task(task, Some(executor_id.into())).await?;
-
-        //  Read the task back and expect to find the outcome of the task set to Success
-        let retrieved_task = node.task_with_id("task_id").await?;
-        assert_eq!(retrieved_task.outcome, TaskOutcome::Success);
-
-        Ok(())
-    }
-
-    /// Test to create, register, read back and remove an executor and
-    /// associated extractors Executors are typically created along with
-    /// extractors so both need to be asserted
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_create_read_remove_executors() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(3, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-
-        //  Create an executor and extractor and ensure they can be read back
-        let executor_id = "executor_id";
-        let extractor = indexify_internal_api::ExtractorDescription {
-            name: "extractor".into(),
-            ..Default::default()
-        };
-        node.register_executor(mock_executor(executor_id.to_string()))
-            .await?;
-
-        //  Read the executors from multiple functions
-        let executors = node.get_executors().await?;
-        assert_eq!(executors.len(), 1);
-
-        let executor = node.get_executor_by_id(executor_id).await?;
-        assert_eq!(executor.id, executor_id);
-
-        //  Read the extractors
-        let extractors = node.list_extractors().await?;
-        assert_eq!(extractors.len(), 1);
-
-        let retrieved_extractor = node.extractor_with_name(&extractor.name)?;
-        assert_eq!(retrieved_extractor, extractor);
-
-        //  Remove the executor that was created and assert that it was removed
-        node.remove_executor(executor_id).await?;
-        let executors = node.get_executors().await?;
-        assert_eq!(executors.len(), 0);
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[tracing_test::traced_test]
-    async fn test_create_and_read_namespaces() -> Result<(), anyhow::Error> {
-        let cluster = RaftTestCluster::new(1, None).await?;
-        cluster.initialize(Duration::from_secs(2)).await?;
-        let node = cluster.get_raft_node(0)?;
-
-        //  Create a namespace
-        let namespace = "namespace";
-        node.create_namespace(namespace).await?;
-
-        // Read all namespaces back and assert that only the created namespace is
-        // present along with the extraction policies
-        let namespaces = node.list_namespaces().await?;
-        assert_eq!(namespaces.len(), 1);
-        assert_eq!(namespaces.first().unwrap(), namespace);
-
-        Ok(())
-    }
-}

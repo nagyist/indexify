@@ -408,24 +408,6 @@ impl DataManager {
         Ok(())
     }
 
-    #[tracing::instrument]
-    pub async fn list_extractors(&self) -> Result<Vec<api::ExtractorDescription>> {
-        let req = indexify_coordinator::ListExtractorsRequest {};
-        let response = self
-            .get_coordinator_client()
-            .await?
-            .list_extractors(req)
-            .await?
-            .into_inner();
-
-        let extractors = response
-            .extractors
-            .into_iter()
-            .map(|e| e.try_into())
-            .collect::<Result<Vec<api::ExtractorDescription>>>()?;
-        Ok(extractors)
-    }
-
     #[tracing::instrument(skip(file))]
     pub async fn write_to_blob_store(
         &self,

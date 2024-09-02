@@ -482,17 +482,11 @@ pub struct Task {
     pub id: String,
     pub compute_graph_name: String,
     pub compute_fn_name: String,
+    pub ingestion_data_object_id: String,
     pub input_data_object_id: String,
-    pub extractor: String,
-    pub extraction_policy_name: String,
-    pub extraction_graph_name: String,
-    pub output_index_table_mapping: HashMap<String, String>,
     pub namespace: String,
-    pub content_metadata: ContentMetadata,
-    pub input_params: serde_json::Value,
     #[schema(value_type = internal_api::TaskOutcome)]
     pub outcome: TaskOutcome,
-    pub index_tables: Vec<String>, // list of index tables that this content may be present in
     #[serde(default = "default_creation_time")]
     pub creation_time: SystemTime,
 }
@@ -501,14 +495,18 @@ impl Task {
     pub fn terminal_state(&self) -> bool {
         self.outcome != TaskOutcome::Unknown
     }
+
+    pub fn key(&self) ->  String {
+        format!("{}_{}_{}_{}", self.namespace, self.compute_graph_name, self.compute_fn_name, self.id)
+    }
 }
 
 impl Display for Task {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Task(id: {}, extractor: {}, extraction_policy_id: {}, extraction_graph_name: {}, namespace: {}, content_id: {}, outcome: {:?})",
-            self.id, self.extractor, self.extraction_policy_name, self.extraction_graph_name, self.namespace, self.content_metadata.id.id, self.outcome
+            "Task(id: {}, compute_graph_name: {}, compute_fn_name: {}, input_data_object_id: {}, namespace: {}, outcome: {:?})",
+            self.id, self.compute_graph_name, self.compute_fn_name, self.input_data_object_id, self.namespace, self.outcome
         )
     }
 }
@@ -531,10 +529,15 @@ impl TaskBuilder {
             .input_data_object_id
             .clone()
             .ok_or(anyhow!("input data object id is not present"))?;
+        let ingestion_data_object_id = self
+            .ingestion_data_object_id
+            .clone()
+            .ok_or(anyhow!("ingestion data object id is not present"))?;
         let mut hasher = DefaultHasher::new();
         cg_name.hash(&mut hasher);
         compute_fn_name.hash(&mut hasher);
         input_data_object_id.hash(&mut hasher);
+        ingestion_data_object_id.hash(&mut hasher);
         namespace.hash(&mut hasher);
         let id = format!("{:x}", hasher.finish());
         let task = Task {
@@ -542,15 +545,9 @@ impl TaskBuilder {
             compute_graph_name: cg_name,
             compute_fn_name,
             input_data_object_id,
-            extractor: "".to_string(),
-            extraction_policy_name: "".to_string(),
-            extraction_graph_name: "".to_string(),
-            output_index_table_mapping: HashMap::new(),
+            ingestion_data_object_id,
             namespace,
-            content_metadata: ContentMetadata::default(),
-            input_params: json!(null),
             outcome: TaskOutcome::Unknown,
-            index_tables: vec![],
             creation_time: default_creation_time(),
         };
         Ok(task)
@@ -564,15 +561,11 @@ impl TryFrom<Task> for indexify_coordinator::Task {
         let outcome: indexify_coordinator::TaskOutcome = value.outcome.into();
         Ok(indexify_coordinator::Task {
             id: value.id,
-            extractor: value.extractor,
             namespace: value.namespace,
-            content_metadata: Some(value.content_metadata.try_into()?),
-            input_params: value.input_params.to_string(),
-            extraction_policy_id: value.extraction_policy_name,
-            extraction_graph_name: value.extraction_graph_name,
-            output_index_mapping: value.output_index_table_mapping,
+            compute_graph_name: value.compute_graph_name,
+            compute_fn_name: value.compute_fn_name,
+            input_data_object_id: value.input_data_object_id,
             outcome: outcome as i32,
-            index_tables: value.index_tables,
         })
     }
 }
@@ -1369,10 +1362,6 @@ pub struct StateChange {
     pub change_type: ChangeType,
     pub created_at: u64,
     pub processed_at: Option<u64>,
-
-    /// If Some, this change holds a reference to an object until it is
-    /// processed.
-    pub refcnt_object_id: Option<String>,
 }
 
 impl StateChange {
@@ -1383,7 +1372,6 @@ impl StateChange {
             change_type,
             created_at,
             processed_at: None,
-            refcnt_object_id: None,
         }
     }
 
@@ -1399,7 +1387,6 @@ impl StateChange {
             change_type,
             created_at,
             processed_at: None,
-            refcnt_object_id: Some(refcnt_object_id),
         }
     }
 }
@@ -1420,7 +1407,6 @@ impl TryFrom<indexify_coordinator::StateChange> for StateChange {
             change_type,
             created_at: value.created_at,
             processed_at: Some(value.processed_at),
-            refcnt_object_id: None,
         })
     }
 }
@@ -1675,14 +1661,14 @@ pub struct GraphInvocationCtx {
     pub namespace: String,
     pub compute_graph_name: String,
     pub ingested_data_object_id: String,
-    pub id: String,
+    pub analytics: TaskAnalytics,
 }
 
 impl GraphInvocationCtx {
     pub fn key(&self) -> String {
         format!(
-            "{}_{}_{}_{}",
-            self.namespace, self.compute_graph_name, self.ingested_data_object_id, self.id
+            "{}_{}_{}",
+            self.namespace, self.compute_graph_name, self.ingested_data_object_id
         )
     }
 }
@@ -1701,16 +1687,11 @@ impl GraphInvocationCtxBuilder {
             .ingested_data_object_id
             .clone()
             .ok_or(anyhow!("ingested_data_object_id is required"))?;
-        let mut hasher = DefaultHasher::new();
-        namespace.hash(&mut hasher);
-        cg_name.hash(&mut hasher);
-        ingested_data_object_id.hash(&mut hasher);
-        let id = format!("{:x}", hasher.finish());
         Ok(GraphInvocationCtx {
             namespace,
             compute_graph_name: cg_name,
             ingested_data_object_id,
-            id,
+            analytics: TaskAnalytics::default(),
         })
     }
 }

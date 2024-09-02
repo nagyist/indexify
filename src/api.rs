@@ -495,23 +495,7 @@ impl TryFrom<indexify_coordinator::Task> for Task {
     type Error = anyhow::Error;
 
     fn try_from(value: indexify_coordinator::Task) -> Result<Self> {
-        let content_metadata = if let Some(metadata) = value.content_metadata {
-            metadata.try_into()?
-        } else {
-            ContentMetadata::default()
-        };
-
-        Ok(Self {
-            id: value.id,
-            extractor: value.extractor,
-            extraction_policy_id: value.extraction_policy_id,
-            output_index_table_mapping: value.output_index_mapping,
-            namespace: value.namespace,
-            content_metadata,
-            input_params: serde_json::Value::String(value.input_params),
-            outcome: value.outcome, //  EGTODO: Is it correct to just return i32 for value outcome?
-            index_tables: value.index_tables,
-        })
+        todo!()
     }
 }
 

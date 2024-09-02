@@ -62,6 +62,16 @@ pub struct DeleteComputeGraphRequest {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct MarkTaskFinishedRequest {
+    pub namespace: String,
+    pub compute_graph_name: String,
+    pub compute_fn_name: String,
+    pub task_id: String,
+    pub outcome: internal_api::TaskOutcome,
+    pub data_objects: Vec<DataObject>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum RequestPayload {
     //  NOTE: This isn't strictly a state machine update. It's used to change cluster membership.
     JoinCluster {
@@ -89,11 +99,7 @@ pub enum RequestPayload {
         extraction_graph_link: ExtractionGraphLink,
     },
     TombstoneIngestedDataObject(TombstoneIngestedDataObjectRequest),
-    UpdateTask {
-        task: internal_api::Task,
-        executor_id: Option<String>,
-        update_time: SystemTime,
-    },
+    UpdateTask(MarkTaskFinishedRequest),
     MarkStateChangesProcessed {
         state_changes: Vec<StateChangeProcessed>,
     },

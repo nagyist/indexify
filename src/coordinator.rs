@@ -248,18 +248,20 @@ impl Coordinator {
 
     pub async fn update_task(
         &self,
+        namespace: &str,
+        compute_graph_name: &str,
+        compute_fn_name: &str,
         task_id: &str,
-        executor_id: &str,
         outcome: internal_api::TaskOutcome,
     ) -> Result<()> {
         info!(
-            "updating task: {}, executor_id: {}, outcome: {:?}",
-            task_id, executor_id, outcome
+            "updating task: {}, outcome: {:?}",
+            task_id, outcome
         );
         let mut task = self.shared_state.task_with_id(task_id).await?;
         task.outcome = outcome;
         self.shared_state
-            .update_task(task, Some(executor_id.to_string()))
+            .update_task(namespace, compute_graph_name, compute_fn_name, task_id, outcome, vec![])
             .await?;
         Ok(())
     }
@@ -273,14 +275,6 @@ impl Coordinator {
 
     pub async fn list_namespaces(&self) -> Result<Vec<String>> {
         self.shared_state.list_namespaces().await
-    }
-
-    pub async fn list_extraction_graphs(&self, namespace: &str) -> Result<Vec<ExtractionGraph>> {
-        self.shared_state.list_extraction_graphs(namespace).await
-    }
-
-    pub async fn list_extractors(&self) -> Result<Vec<internal_api::ExtractorDescription>> {
-        self.shared_state.list_extractors().await
     }
 
     pub async fn heartbeat(
@@ -398,24 +392,6 @@ impl Coordinator {
         task.try_into()
     }
 
-    pub async fn get_task_and_root_content(
-        &self,
-        task_id: &str,
-    ) -> Result<(internal_api::Task, Option<internal_api::ContentMetadata>)> {
-        let task = self.shared_state.task_with_id(task_id).await?;
-        let mut root_content = None;
-        if let Some(root_content_id) = &task.content_metadata.root_content_id {
-            let root_cm = self
-                .shared_state
-                .get_content_metadata_batch(vec![root_content_id.clone()])
-                .await?;
-            if let Some(root_cm) = root_cm.first() {
-                root_content.replace(root_cm.clone());
-            }
-        }
-        Ok((task, root_content))
-    }
-
     pub fn get_extractor(
         &self,
         extractor_name: &str,
@@ -481,14 +457,5 @@ impl Coordinator {
 
     pub fn get_raft_metrics(&self) -> RaftMetrics {
         self.shared_state.get_raft_metrics()
-    }
-
-    pub async fn wait_content_extraction(&self, content_id: &str) {
-        self.shared_state
-            .state_machine
-            .data
-            .indexify_state
-            .wait_root_task_count_zero(content_id)
-            .await
     }
 }

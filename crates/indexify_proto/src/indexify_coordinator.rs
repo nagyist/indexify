@@ -278,37 +278,15 @@ pub struct Task {
     #[prost(string, tag = "1")]
     pub id: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub extractor: ::prost::alloc::string::String,
-    #[prost(string, tag = "3")]
     pub namespace: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "4")]
-    pub content_metadata: ::core::option::Option<ContentMetadata>,
+    #[prost(string, tag = "3")]
+    pub input_data_object_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub compute_graph_name: ::prost::alloc::string::String,
     #[prost(string, tag = "5")]
-    pub input_params: ::prost::alloc::string::String,
-    #[prost(string, tag = "6")]
-    pub extraction_policy_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "7")]
-    pub extraction_graph_name: ::prost::alloc::string::String,
-    /// mapping of extractor names to index tables
-    #[prost(map = "string, string", tag = "8")]
-    pub output_index_mapping: ::std::collections::HashMap<
-        ::prost::alloc::string::String,
-        ::prost::alloc::string::String,
-    >,
-    #[prost(enumeration = "TaskOutcome", tag = "9")]
+    pub compute_fn_name: ::prost::alloc::string::String,
+    #[prost(enumeration = "TaskOutcome", tag = "6")]
     pub outcome: i32,
-    /// list of all tables that the content may belong to
-    #[prost(string, repeated, tag = "10")]
-    pub index_tables: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListExtractorsRequest {}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ListExtractorsResponse {
-    #[prost(message, repeated, tag = "1")]
-    pub extractors: ::prost::alloc::vec::Vec<Extractor>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1239,36 +1217,6 @@ pub mod coordinator_service_client {
                 );
             self.inner.unary(req, path, codec).await
         }
-        pub async fn list_extractors(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ListExtractorsRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ListExtractorsResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/ListExtractors",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "ListExtractors",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
         pub async fn register_executor(
             &mut self,
             request: impl tonic::IntoRequest<super::RegisterExecutorRequest>,
@@ -1445,36 +1393,6 @@ pub mod coordinator_service_client {
                     GrpcMethod::new(
                         "indexify_coordinator.CoordinatorService",
                         "UpdateTask",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
-        pub async fn list_state_changes(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ListStateChangesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ListStateChangesResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/indexify_coordinator.CoordinatorService/ListStateChanges",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "indexify_coordinator.CoordinatorService",
-                        "ListStateChanges",
                     ),
                 );
             self.inner.unary(req, path, codec).await
@@ -1827,13 +1745,6 @@ pub mod coordinator_service_server {
             tonic::Response<super::ListNamespaceResponse>,
             tonic::Status,
         >;
-        async fn list_extractors(
-            &self,
-            request: tonic::Request<super::ListExtractorsRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ListExtractorsResponse>,
-            tonic::Status,
-        >;
         async fn register_executor(
             &self,
             request: tonic::Request<super::RegisterExecutorRequest>,
@@ -1877,13 +1788,6 @@ pub mod coordinator_service_server {
             request: tonic::Request<super::UpdateTaskRequest>,
         ) -> std::result::Result<
             tonic::Response<super::UpdateTaskResponse>,
-            tonic::Status,
-        >;
-        async fn list_state_changes(
-            &self,
-            request: tonic::Request<super::ListStateChangesRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::ListStateChangesResponse>,
             tonic::Status,
         >;
         async fn list_tasks(
@@ -2325,53 +2229,6 @@ pub mod coordinator_service_server {
                     };
                     Box::pin(fut)
                 }
-                "/indexify_coordinator.CoordinatorService/ListExtractors" => {
-                    #[allow(non_camel_case_types)]
-                    struct ListExtractorsSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<
-                        T: CoordinatorService,
-                    > tonic::server::UnaryService<super::ListExtractorsRequest>
-                    for ListExtractorsSvc<T> {
-                        type Response = super::ListExtractorsResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ListExtractorsRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as CoordinatorService>::list_extractors(&inner, request)
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = ListExtractorsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
                 "/indexify_coordinator.CoordinatorService/RegisterExecutor" => {
                     #[allow(non_camel_case_types)]
                     struct RegisterExecutorSvc<T: CoordinatorService>(pub Arc<T>);
@@ -2660,56 +2517,6 @@ pub mod coordinator_service_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = UpdateTaskSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/indexify_coordinator.CoordinatorService/ListStateChanges" => {
-                    #[allow(non_camel_case_types)]
-                    struct ListStateChangesSvc<T: CoordinatorService>(pub Arc<T>);
-                    impl<
-                        T: CoordinatorService,
-                    > tonic::server::UnaryService<super::ListStateChangesRequest>
-                    for ListStateChangesSvc<T> {
-                        type Response = super::ListStateChangesResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ListStateChangesRequest>,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as CoordinatorService>::list_state_changes(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = ListStateChangesSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

@@ -77,7 +77,6 @@ pub struct NamespaceEndpointState {
         paths(
             create_namespace,
             list_namespaces,
-            list_extractors,
             list_executors,
             list_content,
             new_content_stream,
@@ -219,10 +218,6 @@ impl Server {
             .route(
                 "/executors",
                 get(list_executors).with_state(namespace_endpoint_state.clone()),
-            )
-            .route(
-                "/extractors",
-                get(list_extractors).with_state(namespace_endpoint_state.clone()),
             )
             .route(
                 "/state_changes",
@@ -981,31 +976,6 @@ async fn list_executors(
     Ok(Json(ListExecutorsResponse { executors: vec![] }))
 }
 
-/// List all extractors available in the cluster
-#[tracing::instrument]
-#[utoipa::path(
-    get,
-    path = "/extractors",
-    tag = "operations",
-    responses(
-        (status = 200, description = "List of extractors available", body = ListExtractorsResponse),
-        (status = INTERNAL_SERVER_ERROR, description = "Unable to search index")
-    ),
-)]
-#[axum::debug_handler]
-async fn list_extractors(
-    State(state): State<NamespaceEndpointState>,
-) -> Result<Json<ListExtractorsResponse>, IndexifyAPIError> {
-    let extractors = state
-        .data_manager
-        .list_extractors()
-        .await
-        .map_err(IndexifyAPIError::internal_error)?
-        .into_iter()
-        .collect();
-    Ok(Json(ListExtractorsResponse { extractors }))
-}
-
 /// List the state changes in the system
 #[utoipa::path(
     get,
@@ -1021,24 +991,7 @@ async fn list_state_changes(
     State(state): State<NamespaceEndpointState>,
     Query(_query): Query<ListStateChanges>,
 ) -> Result<Json<ListStateChangesResponse>, IndexifyAPIError> {
-    let state_changes = state
-        .coordinator_client
-        .get()
-        .await
-        .map_err(IndexifyAPIError::internal_error)?
-        .list_state_changes(ListStateChangesRequest {})
-        .await
-        .map_err(|e| IndexifyAPIError::new(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()))?
-        .into_inner()
-        .changes;
-
-    let state_changes: Vec<indexify_internal_api::StateChange> = state_changes
-        .into_iter()
-        .map(|c| c.try_into())
-        .filter_map(|c| c.ok())
-        .collect();
-
-    Ok(Json(ListStateChangesResponse { state_changes }))
+    todo!()
 }
 
 /// Get Analytics for an extraction graph

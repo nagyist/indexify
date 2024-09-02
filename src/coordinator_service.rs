@@ -46,15 +46,10 @@ use indexify_proto::indexify_coordinator::{
     GetTaskResponse,
     HeartbeatRequest,
     HeartbeatResponse,
-    ListActiveContentsRequest,
-    ListActiveContentsResponse,
     ListContentRequest,
     ListContentResponse,
     ListExtractionGraphRequest,
     ListExtractionGraphResponse,
-    ListExtractorsRequest,
-    ListExtractorsResponse,
-    ListStateChangesRequest,
     ListTasksRequest,
     ListTasksResponse,
     RaftMetricsSnapshotResponse,
@@ -272,22 +267,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<ListExtractionGraphRequest>,
     ) -> Result<Response<ListExtractionGraphResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let graphs = self
-            .coordinator
-            .list_extraction_graphs(&request.namespace)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let mut proto_graphs = vec![];
-        for graph in graphs {
-            let proto_graph = graph.try_into().map_err(|e| {
-                tonic::Status::aborted(format!("unable to convert extraction graph: {}", e))
-            })?;
-            proto_graphs.push(proto_graph);
-        }
-        Ok(Response::new(ListExtractionGraphResponse {
-            graphs: proto_graphs,
-        }))
+        todo!()
     }
 
     async fn get_extraction_graph_analytics(
@@ -482,22 +462,6 @@ impl CoordinatorService for CoordinatorServiceServer {
         ))
     }
 
-    async fn list_extractors(
-        &self,
-        _request: tonic::Request<ListExtractorsRequest>,
-    ) -> Result<tonic::Response<ListExtractorsResponse>, tonic::Status> {
-        let extractors = self
-            .coordinator
-            .list_extractors()
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        let extractors = extractors
-            .into_iter()
-            .map(|e| e.into())
-            .collect::<Vec<indexify_coordinator::Extractor>>();
-        Ok(tonic::Response::new(ListExtractorsResponse { extractors }))
-    }
-
     async fn register_executor(
         &self,
         request: tonic::Request<RegisterExecutorRequest>,
@@ -627,14 +591,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         request: tonic::Request<UpdateTaskRequest>,
     ) -> Result<tonic::Response<UpdateTaskResponse>, tonic::Status> {
-        let request = request.into_inner();
-        let outcome: internal_api::TaskOutcome = request.outcome().into();
-        let _ = self
-            .coordinator
-            .update_task(&request.task_id, &request.executor_id, outcome)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(tonic::Response::new(UpdateTaskResponse {}))
+        todo!()
     }
 
     async fn get_content_metadata(
@@ -671,91 +628,14 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         req: Request<GetIngestionInfoRequest>,
     ) -> Result<Response<GetIngestionInfoResponse>, Status> {
-        let req = req.into_inner();
-        let (task, root_content) = self
-            .coordinator
-            .get_task_and_root_content(&req.task_id)
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-
-        let root_content: Option<indexify_coordinator::ContentMetadata> =
-            if let Some(metadata) = root_content {
-                Some(
-                    metadata
-                        .try_into()
-                        .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
-                )
-            } else {
-                None
-            };
-
-        let extraction_policy = self
-            .coordinator
-            .get_extraction_policy(
-                &task.namespace,
-                &task.extraction_graph_name,
-                &task.extraction_policy_name,
-            )
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-
-        let proto_extraction_policy: indexify_coordinator::ExtractionPolicy = extraction_policy
-            .try_into()
-            .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?;
-
-        Ok(Response::new(GetIngestionInfoResponse {
-            task: Some(
-                task.try_into()
-                    .map_err(|e: anyhow::Error| tonic::Status::aborted(e.to_string()))?,
-            ),
-            root_content,
-            extraction_policy: Some(proto_extraction_policy),
-        }))
-    }
-
-    async fn list_state_changes(
-        &self,
-        _req: Request<ListStateChangesRequest>,
-    ) -> Result<Response<indexify_coordinator::ListStateChangesResponse>, Status> {
-        let state_changes = self
-            .coordinator
-            .list_state_changes()
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?
-            .into_iter()
-            .map(|c| c.into())
-            .collect();
-        Ok(Response::new(
-            indexify_coordinator::ListStateChangesResponse {
-                changes: state_changes,
-            },
-        ))
+        todo!()
     }
 
     async fn list_tasks(
         &self,
         req: Request<ListTasksRequest>,
     ) -> Result<Response<ListTasksResponse>, Status> {
-        let req = req.into_inner();
-        let outcome: TaskOutcomeFilter = req.outcome.try_into().map_err(|e| {
-            tonic::Status::aborted(format!("unable to convert task outcome filter: {}", e))
-        })?;
-        let outcome: internal_api::TaskOutcomeFilter = outcome.into();
-        let filter = |task: &Task| {
-            task.namespace == req.namespace &&
-                (req.extraction_graph.is_empty() ||
-                    task.extraction_graph_name == req.extraction_graph) &&
-                (req.extraction_policy.is_empty() ||
-                    task.extraction_policy_name == req.extraction_policy) &&
-                (req.content_id.is_empty() || task.content_metadata.id.id == req.content_id) &&
-                outcome.matches(task.outcome)
-        };
-        let response = self
-            .coordinator
-            .list_tasks(filter, Some(req.start_id), Some(req.limit))
-            .await
-            .map_err(|e| tonic::Status::aborted(e.to_string()))?;
-        Ok(Response::new(response))
+        todo!()
     }
 
     async fn get_raft_metrics_snapshot(
@@ -833,10 +713,7 @@ impl CoordinatorService for CoordinatorServiceServer {
         &self,
         req: Request<WaitContentExtractionRequest>,
     ) -> Result<Response<WaitContentExtractionResponse>, Status> {
-        let req = req.into_inner();
-        self.coordinator
-            .wait_content_extraction(&req.content_id)
-            .await;
+        todo!();
         Ok(Response::new(WaitContentExtractionResponse {}))
     }
 }

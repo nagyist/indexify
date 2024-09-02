@@ -17,8 +17,6 @@ service CoordinatorService {
 
     rpc ListNS(ListNamespaceRequest) returns (ListNamespaceResponse) {}
 
-    rpc ListExtractors(ListExtractorsRequest) returns (ListExtractorsResponse) {}
-
     rpc RegisterExecutor(RegisterExecutorRequest) returns (RegisterExecutorResponse) {}
 
     rpc RegisterIngestionServer(RegisterIngestionServerRequest) returns (RegisterIngestionServerResponse) {}
@@ -30,8 +28,6 @@ service CoordinatorService {
     rpc GetExtractionGraphAnalytics(GetExtractionGraphAnalyticsRequest) returns (GetExtractionGraphAnalyticsResponse) {}
 
     rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse) {}
-
-    rpc ListStateChanges(ListStateChangesRequest) returns (ListStateChangesResponse) {}
 
     rpc ListTasks(ListTasksRequest) returns (ListTasksResponse) {}
 
@@ -250,25 +246,11 @@ message HeartbeatResponse {
 
 message Task {
     string id = 1;
-    string extractor = 2;
-    string namespace = 3;
-    ContentMetadata content_metadata = 4;
-    string input_params = 5;
-    string extraction_policy_id = 6;
-    string extraction_graph_name = 7;
-    // mapping of extractor names to index tables
-    map<string, string> output_index_mapping = 8;
-    TaskOutcome outcome = 9;
-    // list of all tables that the content may belong to
-    repeated string index_tables = 10;
-}
-
-message ListExtractorsRequest {
-
-}
-
-message ListExtractorsResponse{
-    repeated Extractor extractors = 1;
+    string namespace = 2;
+    string input_data_object_id = 3;
+    string compute_graph_name = 4;
+    string compute_fn_name = 5;
+    TaskOutcome outcome = 6;
 }
 
 message Extractor {
