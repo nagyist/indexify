@@ -12,10 +12,11 @@ import {
   IconButton
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { DataObject } from 'getindexify';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import CopyText from '../CopyText';
+import { getIndexifyServiceURL } from '../../utils/helpers';
+import { DataObject } from '../../types';
 
 interface InvocationsTableProps {
   invocationsList: DataObject[];
@@ -27,7 +28,7 @@ interface InvocationsTableProps {
 const InvocationsTable: React.FC<InvocationsTableProps> = ({ invocationsList, computeGraph, onDelete, namespace }) => {
   const handleDelete = async (invocationId: string) => {
     try {
-      const url = `http://localhost:8900/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}`;
+      const url = `${getIndexifyServiceURL()}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}`;
       await axios.delete(url, {
         headers: {
           'accept': '*/*'

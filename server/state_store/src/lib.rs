@@ -221,8 +221,15 @@ impl IndexifyState {
                 state_changes
             }
             requests::RequestPayload::FinalizeTask(finalize_task) => {
-                let state_changes = self.finalize_task(&finalize_task).await?;
-                state_machine::mark_task_completed(self.db.clone(), &txn, finalize_task.clone())?;
+                let state_changes = if state_machine::mark_task_completed(
+                    self.db.clone(),
+                    &txn,
+                    finalize_task.clone(),
+                )? {
+                    self.finalize_task(&finalize_task).await?
+                } else {
+                    Vec::new()
+                };
                 tasks_finalized
                     .entry(finalize_task.executor_id.clone())
                     .or_default()
@@ -409,6 +416,18 @@ impl IndexifyState {
                         tracing::error!("failed to send invocation state change: {:?}", err);
                     }
                 }
+                for diagnostic_msg in &sched_update.diagnostic_msgs {
+                    if let Err(err) =
+                        self.task_event_tx
+                            .send(InvocationStateChangeEvent::DiagnosticMessage(
+                                invocation_events::DiagnosticMessage {
+                                    message: diagnostic_msg.clone(),
+                                },
+                            ))
+                    {
+                        tracing::error!("failed to send invocation state change: {:?}", err);
+                    }
+                }
             }
             _ => {}
         }
@@ -534,6 +553,10 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
         .or_default()
         .subscribe();
         loop {
+            // Copy the task_ids_sent before reading the tasks.
+            // The update thread modifies tasks first and then updates task_ids_sent,
+            // this thread does the opposite. This avoids sending the same task multiple times.
+            let task_ids_sent = state.executor_states.read().await.get(&executor).unwrap().task_ids_sent.clone();
             match state
                 .reader()
                 .get_tasks_by_executor(&executor, limit)
@@ -545,7 +568,7 @@ pub fn task_stream(state: Arc<IndexifyState>, executor: ExecutorId, limit: usize
                             let executor_s = executor_state.get_mut(&executor).unwrap();
                             let mut filtered_tasks = vec![];
                             for task in &tasks {
-                                if !executor_s.task_ids_sent.contains(&task.id) {
+                                if !task_ids_sent.contains(&task.id) {
                                     filtered_tasks.push(task.clone());
                                     executor_s.added(&vec![task.id.clone()]);
                                 }
@@ -730,6 +753,7 @@ mod tests {
                         executor: executor_id.clone(),
                     }],
                     reduction_tasks: ReductionTasks::default(),
+                    diagnostic_msgs: vec![],
                 }),
                 state_changes_processed: vec![],
             })
@@ -778,6 +802,7 @@ mod tests {
                 executor: executor_id.clone(),
             }],
             reduction_tasks: ReductionTasks::default(),
+            diagnostic_msgs: vec![],
         };
 
         indexify_state

@@ -9,7 +9,6 @@ import threading
 import time
 from typing import Annotated, List, Optional
 
-import docker
 import nanoid
 import typer
 from rich.console import Console
@@ -19,7 +18,7 @@ from rich.theme import Theme
 
 from indexify.executor.agent import ExtractorAgent
 from indexify.executor.function_worker import FunctionWorker
-from indexify.functions_sdk.image import Image
+from indexify.functions_sdk.image import DEFAULT_IMAGE_3_10, DEFAULT_IMAGE_3_11, Image
 
 custom_theme = Theme(
     {
@@ -56,6 +55,9 @@ def server_dev_mode():
         except Exception as e:
             print(f"failed to move indexify-server to {indexify_server_path}: {e}")
             exit(1)
+    print("starting indexify server and executor in dev mode...")
+    print("press Ctrl+C to stop the server and executor.")
+    print(f"server binary path: {indexify_server_path}")
     commands = [indexify_server_path, "indexify-cli executor"]
 
     processes = []
@@ -116,8 +118,17 @@ def server_dev_mode():
 
 
 @app.command(help="Build image for function names")
-def build_image(workflow_file_path: str, func_names: List[str]):
+def build_image(
+    workflow_file_path: str,
+    image_names: List[str],
+    python_sdk_path: Optional[str] = None,
+):
     globals_dict = {}
+
+    # Add the folder in the workflow file path to the current Python path
+    folder_path = os.path.dirname(workflow_file_path)
+    if folder_path not in sys.path:
+        sys.path.append(folder_path)
 
     try:
         exec(open(workflow_file_path).read(), globals_dict)
@@ -125,18 +136,18 @@ def build_image(workflow_file_path: str, func_names: List[str]):
         raise Exception(
             f"Could not find workflow file to execute at: " f"`{workflow_file_path}`"
         )
-
-    found_funcs = []
-    graph = None
     for name, obj in globals_dict.items():
-        for func_name in func_names:
-            if name == func_name:
-                found_funcs.append(name)
-                _create_image_for_func(func_name=func_name, func_obj=obj)
+        if type(obj) and isinstance(obj, Image) and obj._image_name in image_names:
+            _create_image(obj, python_sdk_path)
+
+
+@app.command(help="Build default image for indexify")
+def build_default_image():
+    _build_image(image=DEFAULT_IMAGE_3_10)
+    _build_image(image=DEFAULT_IMAGE_3_11)
 
     console.print(
-        Text(f"Processed functions: ", style="cyan"),
-        Text(f"{found_funcs}", style="green"),
+        Text(f"Built default indexify image", style="cyan"),
     )
 
 
@@ -189,16 +200,18 @@ def executor(
         console.print(Text(f"Exiting gracefully: {ex}", style="bold yellow"))
 
 
-def _create_image_for_func(func_name, func_obj):
+def _create_image(image: Image, python_sdk_path):
     console.print(
         Text("Creating container for ", style="cyan"),
-        Text(f"`{func_name}`", style="cyan bold"),
+        Text(f"`{image._image_name}`", style="cyan bold"),
     )
-    _build_image(image=func_obj.image, func_name=func_name)
+    _build_image(image=image, python_sdk_path=python_sdk_path)
 
 
-def _build_image(image: Image, func_name: str = None):
+def _build_image(image: Image, python_sdk_path: Optional[str] = None):
     try:
+        import docker
+
         client = docker.from_env()
         client.ping()
     except Exception as e:
@@ -208,25 +221,52 @@ def _build_image(image: Image, func_name: str = None):
         )
         exit(-1)
 
-    docker_file_str_template = """
-FROM {base_image}
+    docker_file = f"""
+FROM {image._base_image}
+
+RUN mkdir -p ~/.indexify
+
+RUN touch ~/.indexify/image_name
+
+RUN  echo {image._image_name} > ~/.indexify/image_name
 
 WORKDIR /app
 
 """
 
-    docker_file_str = docker_file_str_template.format(base_image=image._base_image)
-
     run_strs = ["RUN " + i for i in image._run_strs]
 
-    docker_file_str += "\n".join(run_strs)
+    docker_file += "\n".join(run_strs)
+    print(os.getcwd())
+    import docker
+    import docker.api.build
+
+    docker.api.build.process_dockerfile = lambda dockerfile, path: (
+        "Dockerfile",
+        dockerfile,
+    )
+
+    if python_sdk_path is not None:
+        if not os.path.exists(python_sdk_path):
+            print(f"error: {python_sdk_path} does not exist")
+            os.exit(1)
+        docker_file += f"\nCOPY {python_sdk_path} /app/python-sdk"
+        docker_file += f"\nRUN (cd /app/python-sdk && pip install .)"
+    else:
+        docker_file += f"\nRUN pip install indexify"
 
     console.print("Creating image using Dockerfile contents:", style="cyan bold")
-    console.print(f"{docker_file_str}", style="magenta")
+    console.print(f"{docker_file}", style="magenta")
 
     client = docker.from_env()
-    client.images.build(
-        fileobj=io.BytesIO(docker_file_str.encode()),
-        tag=f"{image._image_name}:{image._tag}",
+    image_name = f"{image._image_name}:{image._tag}"
+    (_image, generator) = client.images.build(
+        path=".",
+        dockerfile=docker_file,
+        tag=image_name,
         rm=True,
     )
+    for result in generator:
+        print(result)
+
+    print(f"built image: {image_name}")

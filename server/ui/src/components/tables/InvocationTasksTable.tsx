@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import {
   Table,
@@ -12,7 +12,10 @@ import {
   Box,
   Alert,
   Chip,
+  TextField,
+  InputAdornment,
 } from '@mui/material';
+import SearchIcon from '@mui/icons-material/Search';
 
 interface Task {
   id: string;
@@ -25,18 +28,20 @@ interface Task {
 }
 
 interface InvocationTasksTableProps {
+  indexifyServiceURL: string;
   invocationId: string;
   namespace: string;
   computeGraph: string;
 }
 
-const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ invocationId, namespace, computeGraph }) => {
+const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ indexifyServiceURL, invocationId, namespace, computeGraph }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const fetchTasks = async () => {
       try {
-        const url = `http://localhost:8900/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/tasks`;
+        const url = `${indexifyServiceURL}/namespaces/${namespace}/compute_graphs/${computeGraph}/invocations/${invocationId}/tasks`;
         const response = await axios.get<{ tasks: Task[] }>(url, {
           headers: {
             'accept': 'application/json'
@@ -49,17 +54,15 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ invocationI
     };
 
     fetchTasks();
-  }, [invocationId, namespace, computeGraph]);
+  }, [indexifyServiceURL, invocationId, namespace, computeGraph]);
 
-  if (!tasks || tasks.length === 0) {
-    return (
-      <Box mt={2} mb={2}>
-        <Alert variant="outlined" severity="info">
-          No Tasks Found
-        </Alert>
-      </Box>
+  const filteredTasks = useMemo(() => {
+    return tasks.filter(task => 
+      task.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      task.compute_fn.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      task.input_key.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }
+  }, [tasks, searchTerm]);
 
   const getChipStyles = (outcome: string) => {
     const baseStyle = {
@@ -89,9 +92,34 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ invocationI
     }
   };
 
+  if (!tasks || tasks.length === 0) {
+    return (
+      <Box mt={2} mb={2}>
+        <Alert variant="outlined" severity="info">
+          No Tasks Found
+        </Alert>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ width: '100%', mt: 2 }}>
-      <Typography variant="h6" gutterBottom>Tasks for Invocation</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h6">Tasks for Invocation</Typography>
+        <TextField
+          size="small"
+          placeholder="Search tasks"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon />
+              </InputAdornment>
+            ),
+          }}
+        />
+      </Box>
       <TableContainer component={Paper} sx={{boxShadow: "0px 0px 2px 0px rgba(51, 132, 252, 0.5) inset"}}>
         <Table>
           <TableHead>
@@ -103,7 +131,7 @@ const InvocationTasksTable: React.FC<InvocationTasksTableProps> = ({ invocationI
             </TableRow>
           </TableHead>
           <TableBody>
-            {tasks.map((task) => (
+            {filteredTasks.map((task) => (
               <TableRow key={task.id}>
                 <TableCell>{task.id}</TableCell>
                 <TableCell>{task.compute_fn}</TableCell>

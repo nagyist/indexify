@@ -1,7 +1,6 @@
 import asyncio
 import json
 import ssl
-import traceback
 from concurrent.futures.process import BrokenProcessPool
 from typing import Dict, List, Optional
 
@@ -24,6 +23,7 @@ from .api_objects import ExecutorMetadata, Task
 from .downloader import DownloadedInputs, Downloader
 from .executor_tasks import DownloadGraphTask, DownloadInputTask, ExtractTask
 from .function_worker import FunctionWorker
+from .runtime_probes import ProbeInfo, RuntimeProbes
 from .task_reporter import TaskReporter
 from .task_store import CompletedTask, TaskStore
 
@@ -98,6 +98,7 @@ class ExtractorAgent:
         self._task_reporter = TaskReporter(
             base_url=self._base_url, executor_id=self._executor_id
         )
+        self._probe = RuntimeProbes()
 
     async def task_completion_reporter(self):
         console.print(Text("Starting task completion reporter", style="bold cyan"))
@@ -305,11 +306,12 @@ class ExtractorAgent:
                 words = snake_str.split("_")
                 return words[0].capitalize() + "" + " ".join(words[1:])
 
+            runtime_probe: ProbeInfo = self._probe.probe()
             data = ExecutorMetadata(
                 id=self._executor_id,
-                address="",
-                runner_name="extractor",
-                labels={},
+                addr="",
+                image_name=runtime_probe.image_name,
+                labels=runtime_probe.labels,
             ).model_dump()
 
             panel_content = "\n".join(
@@ -318,7 +320,7 @@ class ExtractorAgent:
             console.print(
                 Panel(
                     panel_content,
-                    title="Attempting to Register Executor",
+                    title="attempting to Register Executor",
                     border_style="cyan",
                 )
             )
@@ -333,7 +335,7 @@ class ExtractorAgent:
                         headers={"Content-Type": "application/json"},
                     ) as event_source:
                         console.print(
-                            Text("Executor registered successfully", style="bold green")
+                            Text("executor registered successfully", style="bold green")
                         )
                         async for sse in event_source.aiter_sse():
                             data = json.loads(sse.data)
@@ -345,14 +347,14 @@ class ExtractorAgent:
                             self._task_store.add_tasks(tasks)
             except Exception as e:
                 console.print(
-                    Text("Registration Error: ", style="red bold")
-                    + Text(f"Failed to register: {e}", style="red")
+                    Text("registration Error: ", style="red bold")
+                    + Text(f"failed to register: {e}", style="red")
                 )
                 await asyncio.sleep(5)
                 continue
 
     async def _shutdown(self, loop):
-        console.print(Text("Shutting down agent...", style="bold yellow"))
+        console.print(Text("shutting down agent...", style="bold yellow"))
         self._should_run = False
         for task in asyncio.all_tasks(loop):
             task.cancel()

@@ -23,7 +23,7 @@ import {
   ListItemText,
 } from '@mui/material';
 import { Link } from 'react-router-dom';
-import { Cpu, TableDocument } from 'iconsax-react';
+import { Cpu, TableDocument, Setting4 } from 'iconsax-react';
 import VersionDisplay from '../components/VersionDisplay';
 
 const indexifyServiceURL = getIndexifyServiceURL();
@@ -114,6 +114,15 @@ export default function Dashboard() {
             >
               <List sx={{ flexGrow: 1 }}>
                 <ListItemButton
+                  to={`/${namespace}/compute-graphs`}
+                  component={Link}
+                  selected={location.pathname.startsWith(`/${namespace}/compute-graphs`)}
+                  className={location.pathname.startsWith(`/${namespace}/compute-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
+                >
+                  <Cpu size="20" className="drawer-logo" variant="Outline" />
+                  <ListItemText primary={'Compute Graphs'} />
+                </ListItemButton>
+                <ListItemButton
                   to={`/namespaces`}
                   component={Link}
                   selected={location.pathname.startsWith(`/namespaces`)}
@@ -123,13 +132,13 @@ export default function Dashboard() {
                   <ListItemText primary={'Namespaces'} />
                 </ListItemButton>
                 <ListItemButton
-                  to={`/${namespace}/compute-graphs`}
+                  to={`/executors`}
                   component={Link}
-                  selected={location.pathname.startsWith(`/${namespace}/compute-graphs`)}
-                  className={location.pathname.startsWith(`/${namespace}/compute-graphs`) ? "selected-navbar-items navbar-items" : "navbar-items"}
+                  selected={location.pathname.startsWith(`/executors`)}
+                  className={location.pathname.startsWith(`/executors`) ? "selected-navbar-items navbar-items" : "navbar-items"}
                 >
-                  <Cpu size="20" className="drawer-logo" variant="Outline" />
-                  <ListItemText primary={'Compute Graphs'} />
+                  <Setting4 size="20" className="drawer-logo" variant="Outline" />
+                  <ListItemText primary={'Executors'} />
                 </ListItemButton>
               </List>
               <Box sx={{ mt: 'auto', pb: 1 }}>
